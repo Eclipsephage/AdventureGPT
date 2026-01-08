@@ -1,0 +1,4 @@
+[{'content': 'WELCOME TO ADVENTURE!!  WOULD YOU LIKE INSTRUCTIONS?\n\n',
+  'role': 'system'},
+ {'content': 'look', 'role': 'assistant'},
+ {'content': 'PLEASE ANSWER THE QUESTION.\n', 'role': 'system'}]

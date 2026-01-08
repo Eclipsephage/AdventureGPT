@@ -1,0 +1,15 @@
+{
+  "started_at_utc": "2026-01-08T06:38:52.636336+00:00",
+  "ended_at_utc": "2026-01-08T06:38:52.638891+00:00",
+  "walkthrough_enabled": false,
+  "dry_run": true,
+  "llm": {
+    "model": "gpt-4o-mini",
+    "temperature": 0.0,
+    "max_output_tokens": 2000
+  },
+  "steps": 1,
+  "commands_sent": 1,
+  "tasks_completed": 1,
+  "errors": []
+}

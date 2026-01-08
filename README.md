@@ -29,11 +29,29 @@ Add a `--help` flag to see the command line arguments.
 - **ADVENTUREGPT_TEMPERATURE** / `--temperature`: sampling temperature (default `0.0`).
 - **ADVENTUREGPT_MAX_OUTPUT_TOKENS** / `--max_output_tokens`: per-call output cap (default `2000`).
 
+### State, memory, and command safety
+
+AdventureGPT now includes:
+
+- **Heuristic state tracking** (`adventuregpt/state.py`): extracts a compact state summary (turn, last command, inventory hints, mentioned directions, recent output snippet).
+- **Bounded prompt memory** (`adventuregpt/memory.py`): keeps a rolling window of messages and (when an LLM is available) periodically summarizes older history into a short memory summary.
+- **Command normalization + loop breaking** (`adventuregpt/command_safety.py`): converts model output into a single short command and attempts to break out of simple repetition loops.
+
 ### Smoke test (no OpenAI calls)
 
 ```bash
 python -m adventuregpt --dry_run
 ```
+
+### Evaluation harness
+
+Run multiple sessions and produce an aggregate report:
+
+```bash
+python -m adventuregpt.eval --runs 10 --dry_run
+```
+
+This writes `report.json` and `report.csv` under `./eval_runs/<timestamp>/`.
 
 ## TODO
 

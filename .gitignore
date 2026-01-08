@@ -164,3 +164,6 @@ openai-key.txt
 
 # AdventureGPT run artifacts
 runs/
+
+# Eval harness outputs
+eval_runs/

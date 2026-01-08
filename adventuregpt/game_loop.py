@@ -13,8 +13,6 @@ Usage:
 
 from __future__ import annotations
 
-import functools
-import operator
 import re
 import sys
 from time import sleep
@@ -31,8 +29,11 @@ from .agent import (
     task_completion_agent,
     walkthrough_gametask_creation_agent,
 )
+from .command_safety import LoopBreaker, normalize_command_text
 from .llm_client import LLMClient
+from .memory import MemoryConfig, MemoryManager
 from .run_artifacts import RunArtifacts
+from .state import GameStateTracker
 
 
 BAUD = 1200
@@ -61,6 +62,9 @@ class GameLoop:
         self.current_task: Optional[str] = None
 
         self.game: Optional[Game] = None
+        self.state = GameStateTracker()
+        self.memory = MemoryManager(MemoryConfig())
+        self.loop_breaker = LoopBreaker()
 
     def _baudout(self, s: str) -> None:
         """
@@ -85,6 +89,10 @@ class GameLoop:
         event = {"role": role, "content": content}
         self.history.append(event)
         self.artifacts.write_history_event(event)
+
+        # Update heuristic state from game output.
+        if role == "system":
+            self.state.observe_system_output(content)
 
     def _next_game_task(self) -> None:
         """
@@ -175,46 +183,70 @@ class GameLoop:
             if self.dry_run:
                 result = "look"
             else:
-                result = player_agent(self.current_task, self.history, self.completed_tasks, llm=self.llm)
+                state_summary = self.state.format_summary()
+                context_history = self.memory.build_context(
+                    self.history,
+                    llm=self.llm,
+                    state_summary=state_summary,
+                )
+                result = player_agent(
+                    self.current_task,
+                    context_history,
+                    self.completed_tasks,
+                    llm=self.llm,
+                )
             self._append_history("assistant", result)
 
-            # Split lines by newlines and periods and flatten list
-            newline_split = result.lower().split("\n")
-            period_split = [line.split(".") for line in newline_split]
-            split_lines = functools.reduce(operator.iconcat, period_split, [])
+            # Normalize to a single safe command.
+            command = normalize_command_text(result)
+            alt = self.loop_breaker.suggest_alternative(command)
+            if alt:
+                command = alt
 
-            # We got input! Act on it.
-            for line in split_lines:
-                words = re.findall(r"\w+", line)
-                if not words:
-                    continue
+            words = re.findall(r"\w+", command)
+            if not words:
+                words = ["help"]
 
-                self.artifacts.increment("steps", 1)
+            self.loop_breaker.record(command)
+            self.state.observe_command(command)
+            self.artifacts.increment("steps", 1)
 
-                command_output = self.game.do_command(words)
-                self._append_history("system", command_output)
+            command_output = self.game.do_command(words)
+            self._append_history("system", command_output)
 
-                self._baudout(f"> {line}\n\n")
-                self._baudout(command_output)
+            self._baudout(f"> {command}\n\n")
+            self._baudout(command_output)
 
-                self.artifacts.write_command(line)
-                self.artifacts.increment("commands_sent", 1)
+            self.artifacts.write_command(command)
+            self.artifacts.increment("commands_sent", 1)
 
-                # If not using a walkthrough, come up with more tasks and prioritize
-                if self.dry_run:
-                    # Don't call OpenAI in dry-run mode.
-                    self._next_game_task()
-                    dry_stop = True
-                    break
+            # If not using a walkthrough, come up with more tasks and prioritize
+            if self.dry_run:
+                # Don't call OpenAI in dry-run mode.
+                self._next_game_task()
+                dry_stop = True
+                break
 
-                if not self.walkthrough_path:
-                    new_tasks = gametask_creation_agent(self.history, llm=self.llm)
-                    self.game_tasks.concat(new_tasks)
-                    self.game_tasks = prioritization_agent(self.game_tasks, self.history, llm=self.llm)
+            if not self.walkthrough_path:
+                state_summary = self.state.format_summary()
+                context_history = self.memory.build_context(
+                    self.history,
+                    llm=self.llm,
+                    state_summary=state_summary,
+                )
+                new_tasks = gametask_creation_agent(context_history, llm=self.llm)
+                self.game_tasks.concat(new_tasks)
+                self.game_tasks = prioritization_agent(self.game_tasks, context_history, llm=self.llm)
 
-                completed = task_completion_agent(self.current_task, self.history, llm=self.llm)
-                if completed:
-                    self._next_game_task()
+            state_summary = self.state.format_summary()
+            context_history = self.memory.build_context(
+                self.history,
+                llm=self.llm,
+                state_summary=state_summary,
+            )
+            completed = task_completion_agent(self.current_task, context_history, llm=self.llm)
+            if completed:
+                self._next_game_task()
 
             if dry_stop:
                 break
