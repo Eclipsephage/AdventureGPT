@@ -69,10 +69,35 @@ class RunArtifacts:
             "started_at_utc": datetime.now(timezone.utc).isoformat(),
             "ended_at_utc": None,
             "walkthrough_enabled": False,
+            "dry_run": False,
+            "llm": {
+                "model": None,
+                "temperature": None,
+                "max_output_tokens": None,
+            },
             "steps": 0,
             "commands_sent": 0,
             "tasks_completed": 0,
             "errors": [],
+        }
+
+    def set_llm_config(
+        self,
+        *,
+        model: str,
+        temperature: float,
+        max_output_tokens: int,
+        dry_run: bool,
+    ) -> None:
+        """
+        Record LLM configuration for this run.
+        """
+
+        self.metrics["dry_run"] = bool(dry_run)
+        self.metrics["llm"] = {
+            "model": model,
+            "temperature": float(temperature),
+            "max_output_tokens": int(max_output_tokens),
         }
 
     def configure_logging(self, level: int = logging.INFO) -> None:

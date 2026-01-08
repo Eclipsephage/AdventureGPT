@@ -22,6 +22,19 @@ python -m adventuregpt
 ```
 Add a `--help` flag to see the command line arguments.
 
+### Configuration
+
+- **OPENAI_API_KEY**: required for non-`--dry_run` runs.
+- **ADVENTUREGPT_MODEL** / `--model`: choose the model (default `gpt-4o-mini`).
+- **ADVENTUREGPT_TEMPERATURE** / `--temperature`: sampling temperature (default `0.0`).
+- **ADVENTUREGPT_MAX_OUTPUT_TOKENS** / `--max_output_tokens`: per-call output cap (default `2000`).
+
+### Smoke test (no OpenAI calls)
+
+```bash
+python -m adventuregpt --dry_run
+```
+
 ## TODO
 
 Here is a list of eventual goals for the project:

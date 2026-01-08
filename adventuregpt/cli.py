@@ -10,11 +10,13 @@ This module centralizes argument parsing and delegates execution to the game loo
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import dataclass
 from typing import Optional
 
 from .game_loop import GameLoop
 from .run_artifacts import RunArtifacts, RunArtifactsConfig
+from .llm_client import CappedLLMClient, OpenAIResponsesClient, OpenAIResponsesConfig
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,9 @@ class CLIArgs:
     output_path: Optional[str]
     run_dir: Optional[str]
     dry_run: bool
+    model: str
+    temperature: float
+    max_output_tokens: int
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIArgs:
@@ -69,12 +74,52 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIArgs:
             "to validate the game loop and artifact writing."
         ),
     )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help=(
+            "OpenAI model name. If omitted, uses ADVENTUREGPT_MODEL or a sane default."
+        ),
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help=(
+            "Sampling temperature. If omitted, uses ADVENTUREGPT_TEMPERATURE or 0.0."
+        ),
+    )
+    parser.add_argument(
+        "--max_output_tokens",
+        type=int,
+        default=None,
+        help=(
+            "Global cap for max output tokens per LLM call. "
+            "If omitted, uses ADVENTUREGPT_MAX_OUTPUT_TOKENS or 2000."
+        ),
+    )
     ns = parser.parse_args(argv)
+
+    model = ns.model or os.environ.get("ADVENTUREGPT_MODEL") or "gpt-4o-mini"
+    temperature = (
+        ns.temperature
+        if ns.temperature is not None
+        else float(os.environ.get("ADVENTUREGPT_TEMPERATURE", "0.0"))
+    )
+    max_output_tokens = (
+        ns.max_output_tokens
+        if ns.max_output_tokens is not None
+        else int(os.environ.get("ADVENTUREGPT_MAX_OUTPUT_TOKENS", "2000"))
+    )
+
     return CLIArgs(
         walkthrough_path=ns.walkthrough_path,
         output_path=ns.output_path,
         run_dir=ns.run_dir,
         dry_run=bool(ns.dry_run),
+        model=model,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
     )
 
 
@@ -92,11 +137,31 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
     )
     artifacts.configure_logging()
+    artifacts.set_llm_config(
+        model=args.model,
+        temperature=args.temperature,
+        max_output_tokens=args.max_output_tokens,
+        dry_run=args.dry_run,
+    )
+
+    llm = None
+    if not args.dry_run:
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set. Please set it in your environment to run AdventureGPT."
+            )
+        base_llm = OpenAIResponsesClient(
+            api_key=api_key,
+            config=OpenAIResponsesConfig(model=args.model, temperature=args.temperature),
+        )
+        llm = CappedLLMClient(base_llm, max_output_tokens_cap=args.max_output_tokens)
 
     loop = GameLoop(
         walkthrough_path=args.walkthrough_path,
         artifacts=artifacts,
         dry_run=args.dry_run,
+        llm=llm,
     )
 
     try:

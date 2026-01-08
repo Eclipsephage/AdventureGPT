@@ -103,3 +103,20 @@ class OpenAIResponsesClient:
             raise last_err
         raise RuntimeError("OpenAI request failed with unknown error.")
 
+
+class CappedLLMClient:
+    """
+    Wrapper that caps `max_output_tokens` for all calls.
+
+    This is useful to enforce a global budget from CLI/env configuration without
+    changing all agent call-sites.
+    """
+
+    def __init__(self, inner: LLMClient, *, max_output_tokens_cap: int):
+        self._inner = inner
+        self._cap = int(max_output_tokens_cap)
+
+    def respond(self, messages: Messages, *, max_output_tokens: int) -> str:
+        capped = min(int(max_output_tokens), self._cap)
+        return self._inner.respond(messages, max_output_tokens=capped)
+

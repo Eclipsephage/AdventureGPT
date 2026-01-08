@@ -31,6 +31,7 @@ from .agent import (
     task_completion_agent,
     walkthrough_gametask_creation_agent,
 )
+from .llm_client import LLMClient
 from .run_artifacts import RunArtifacts
 
 
@@ -42,10 +43,17 @@ class GameLoop:
     Run the Adventure game loop using LLM agents.
     """
 
-    def __init__(self, walkthrough_path: Optional[str], artifacts: RunArtifacts, dry_run: bool = False):
+    def __init__(
+        self,
+        walkthrough_path: Optional[str],
+        artifacts: RunArtifacts,
+        dry_run: bool = False,
+        llm: Optional[LLMClient] = None,
+    ):
         self.walkthrough_path = walkthrough_path or None
         self.artifacts = artifacts
         self.dry_run = bool(dry_run)
+        self.llm = llm
 
         self.history: List[Dict[str, str]] = []
         self.game_tasks = SingleTaskListStorage()
@@ -126,10 +134,10 @@ class GameLoop:
                 text_chunks.append(" ".join(curr_chunk))
 
             for chunk in text_chunks:
-                tasks = walkthrough_gametask_creation_agent(chunk)
+                tasks = walkthrough_gametask_creation_agent(chunk, llm=self.llm)
                 self.game_tasks.concat(tasks)
         else:
-            self.game_tasks = gametask_creation_agent(self.history)
+            self.game_tasks = gametask_creation_agent(self.history, llm=self.llm)
 
         self._next_game_task()
 
@@ -157,7 +165,7 @@ class GameLoop:
                 if self.walkthrough_path:
                     self.artifacts.record_error("Task list exhausted while using walkthrough mode.")
                     break
-                self.game_tasks = gametask_creation_agent(self.history)
+                self.game_tasks = gametask_creation_agent(self.history, llm=self.llm)
                 self._next_game_task()
                 if not self.current_task:
                     self.artifacts.record_error("Unable to generate a non-empty task list.")
@@ -167,7 +175,7 @@ class GameLoop:
             if self.dry_run:
                 result = "look"
             else:
-                result = player_agent(self.current_task, self.history, self.completed_tasks)
+                result = player_agent(self.current_task, self.history, self.completed_tasks, llm=self.llm)
             self._append_history("assistant", result)
 
             # Split lines by newlines and periods and flatten list
@@ -200,11 +208,11 @@ class GameLoop:
                     break
 
                 if not self.walkthrough_path:
-                    new_tasks = gametask_creation_agent(self.history)
+                    new_tasks = gametask_creation_agent(self.history, llm=self.llm)
                     self.game_tasks.concat(new_tasks)
-                    self.game_tasks = prioritization_agent(self.game_tasks, self.history)
+                    self.game_tasks = prioritization_agent(self.game_tasks, self.history, llm=self.llm)
 
-                completed = task_completion_agent(self.current_task, self.history)
+                completed = task_completion_agent(self.current_task, self.history, llm=self.llm)
                 if completed:
                     self._next_game_task()
 
