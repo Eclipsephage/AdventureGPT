@@ -33,6 +33,10 @@ Here is a list of eventual goals for the project:
 * Better utilization of context/memory in prompts, maybe storing results in a vector DB
 * Add a "replay" feature to take a history dump from a run and replay the main game text (for media creation)
 
+## Roadmap
+
+See `ROADMAP.md` for a phased upgrade + feature-addition plan.
+
 ## Contributing
 
 This project is a playground for me to learn more about prompt engineering and play with OpenAI's models. That said, I am interested in pushing this to the absolute limit of what is possible. If you want to contribute, make a fork and create pull requests. I will do my best to be a good steward of the project and comment on pull requests within a timely manner.
