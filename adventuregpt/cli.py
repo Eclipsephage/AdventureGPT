@@ -26,6 +26,7 @@ class CLIArgs:
     walkthrough_path: Optional[str]
     output_path: Optional[str]
     run_dir: Optional[str]
+    dry_run: bool
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIArgs:
@@ -60,11 +61,20 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIArgs:
             "If omitted, a timestamped directory under ./runs is created."
         ),
     )
+    parser.add_argument(
+        "--dry_run",
+        action="store_true",
+        help=(
+            "Run without calling OpenAI. Uses a minimal task + a single safe command "
+            "to validate the game loop and artifact writing."
+        ),
+    )
     ns = parser.parse_args(argv)
     return CLIArgs(
         walkthrough_path=ns.walkthrough_path,
         output_path=ns.output_path,
         run_dir=ns.run_dir,
+        dry_run=bool(ns.dry_run),
     )
 
 
@@ -86,6 +96,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     loop = GameLoop(
         walkthrough_path=args.walkthrough_path,
         artifacts=artifacts,
+        dry_run=args.dry_run,
     )
 
     try:

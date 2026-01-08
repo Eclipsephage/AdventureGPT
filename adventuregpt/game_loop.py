@@ -42,9 +42,10 @@ class GameLoop:
     Run the Adventure game loop using LLM agents.
     """
 
-    def __init__(self, walkthrough_path: Optional[str], artifacts: RunArtifacts):
+    def __init__(self, walkthrough_path: Optional[str], artifacts: RunArtifacts, dry_run: bool = False):
         self.walkthrough_path = walkthrough_path or None
         self.artifacts = artifacts
+        self.dry_run = bool(dry_run)
 
         self.history: List[Dict[str, str]] = []
         self.game_tasks = SingleTaskListStorage()
@@ -59,6 +60,10 @@ class GameLoop:
         """
 
         out = sys.stdout
+        if self.dry_run:
+            out.write(s)
+            out.flush()
+            return
         for c in s:
             sleep(9.0 / BAUD)  # 8 bits + 1 stop bit @ the given baud rate
             out.write(c)
@@ -98,6 +103,11 @@ class GameLoop:
         """
 
         self.artifacts.set_walkthrough_enabled(bool(self.walkthrough_path))
+
+        if self.dry_run:
+            self.game_tasks = SingleTaskListStorage([{"task_name": "Dry run: initialize"}])
+            self._next_game_task()
+            return
 
         if self.walkthrough_path:
             # Read walkthrough in approximate token chunks.
@@ -140,6 +150,7 @@ class GameLoop:
         self._baudout(next_input)
         self._append_history("system", next_input)
 
+        dry_stop = False
         while not self.game.is_finished:
             if not self.current_task:
                 # If tasks are exhausted, generate more from history.
@@ -153,7 +164,10 @@ class GameLoop:
                     break
 
             # Ask Player Agent what to do next
-            result = player_agent(self.current_task, self.history, self.completed_tasks)
+            if self.dry_run:
+                result = "look"
+            else:
+                result = player_agent(self.current_task, self.history, self.completed_tasks)
             self._append_history("assistant", result)
 
             # Split lines by newlines and periods and flatten list
@@ -179,6 +193,12 @@ class GameLoop:
                 self.artifacts.increment("commands_sent", 1)
 
                 # If not using a walkthrough, come up with more tasks and prioritize
+                if self.dry_run:
+                    # Don't call OpenAI in dry-run mode.
+                    self._next_game_task()
+                    dry_stop = True
+                    break
+
                 if not self.walkthrough_path:
                     new_tasks = gametask_creation_agent(self.history)
                     self.game_tasks.concat(new_tasks)
@@ -187,6 +207,9 @@ class GameLoop:
                 completed = task_completion_agent(self.current_task, self.history)
                 if completed:
                     self._next_game_task()
+
+            if dry_stop:
+                break
 
         # Always write a final pretty dump for human inspection.
         self.artifacts.write_history_dump(self.history)
