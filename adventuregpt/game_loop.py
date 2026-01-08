@@ -32,7 +32,9 @@ from .agent import (
 )
 from .command_safety import LoopBreaker, normalize_command_text
 from .llm_client import LLMClient
+from .map_agent import MapAgent
 from .memory import MemoryConfig, MemoryManager
+from .planner import WinPlanner
 from .run_artifacts import RunArtifacts
 from .state import GameStateTracker
 
@@ -71,6 +73,10 @@ class GameLoop:
         self.state = GameStateTracker()
         self.memory = MemoryManager(MemoryConfig())
         self.loop_breaker = LoopBreaker()
+        self.map_agent = MapAgent()
+        self.planner = WinPlanner()
+        self._task_attempts: dict[str, int] = {}
+        self._max_task_attempts: int = 3
 
     def _baudout(self, s: str) -> None:
         """
@@ -99,6 +105,7 @@ class GameLoop:
         # Update heuristic state from game output.
         if role == "system":
             self.state.observe_system_output(content)
+            self.map_agent.observe_output(content)
 
     def _next_game_task(self) -> None:
         """
@@ -151,7 +158,13 @@ class GameLoop:
                 tasks = walkthrough_gametask_creation_agent(chunk, llm=self.llm)
                 self.game_tasks.concat(tasks)
         else:
-            self.game_tasks = gametask_creation_agent(self.history, llm=self.llm)
+            # Phase 3: win-oriented planner (map/state aware).
+            self.game_tasks = self.planner.plan(
+                context_history=self.history,
+                map_graph=self.map_agent.graph,
+                completed_tasks=str(self.completed_tasks),
+                llm=self.llm,
+            )
 
         self._next_game_task()
 
@@ -190,7 +203,12 @@ class GameLoop:
                 if self.walkthrough_path:
                     self.artifacts.record_error("Task list exhausted while using walkthrough mode.")
                     break
-                self.game_tasks = gametask_creation_agent(self.history, llm=self.llm)
+                self.game_tasks = self.planner.plan(
+                    context_history=self.history,
+                    map_graph=self.map_agent.graph,
+                    completed_tasks=str(self.completed_tasks),
+                    llm=self.llm,
+                )
                 self._next_game_task()
                 if not self.current_task:
                     self.artifacts.record_error("Unable to generate a non-empty task list.")
@@ -201,10 +219,11 @@ class GameLoop:
                 result = "look"
             else:
                 state_summary = self.state.format_summary()
+                map_summary = self.map_agent.format_prompt_addendum()
                 context_history = self.memory.build_context(
                     self.history,
                     llm=self.llm,
-                    state_summary=state_summary,
+                    state_summary=state_summary + "\n" + map_summary,
                 )
                 result = player_agent(
                     self.current_task,
@@ -226,6 +245,7 @@ class GameLoop:
 
             self.loop_breaker.record(command)
             self.state.observe_command(command)
+            self.map_agent.observe_command(command)
             self.artifacts.increment("steps", 1)
             if self.max_steps is not None and int(self.artifacts.metrics.get("steps", 0)) >= self.max_steps:
                 self.artifacts.record_error(f"Stopped due to max_steps limit ({self.max_steps}).")
@@ -256,28 +276,45 @@ class GameLoop:
 
             if not self.walkthrough_path:
                 state_summary = self.state.format_summary()
+                map_summary = self.map_agent.format_prompt_addendum()
                 context_history = self.memory.build_context(
                     self.history,
                     llm=self.llm,
-                    state_summary=state_summary,
+                    state_summary=state_summary + "\n" + map_summary,
                 )
-                new_tasks = gametask_creation_agent(context_history, llm=self.llm)
-                self.game_tasks.concat(new_tasks)
-                self.game_tasks = prioritization_agent(self.game_tasks, context_history, llm=self.llm)
+                # Phase 3: refresh task list from planner (map/state aware).
+                self.game_tasks = self.planner.plan(
+                    context_history=context_history,
+                    map_graph=self.map_agent.graph,
+                    completed_tasks=str(self.completed_tasks),
+                    llm=self.llm,
+                )
 
             state_summary = self.state.format_summary()
+            map_summary = self.map_agent.format_prompt_addendum()
             context_history = self.memory.build_context(
                 self.history,
                 llm=self.llm,
-                state_summary=state_summary,
+                state_summary=state_summary + "\n" + map_summary,
             )
             completed = task_completion_agent(self.current_task, context_history, llm=self.llm)
             if completed:
                 self._next_game_task()
+                continue
+
+            # If we keep failing the same task, mark it blocked and move on.
+            if self.current_task:
+                self._task_attempts[self.current_task] = self._task_attempts.get(self.current_task, 0) + 1
+                if self._task_attempts[self.current_task] >= self._max_task_attempts:
+                    self.completed_tasks.append({"task_name": f"BLOCKED: {self.current_task}"})
+                    self.artifacts.record_error(f"Objective blocked after {self._max_task_attempts} attempts: {self.current_task}")
+                    self._next_game_task()
 
             if dry_stop:
                 break
 
         # Always write a final pretty dump for human inspection.
         self.artifacts.write_history_dump(self.history)
+        # Persist map artifact for replay/debugging.
+        self.artifacts.write_json("map.json", self.map_agent.graph.to_dict())
 

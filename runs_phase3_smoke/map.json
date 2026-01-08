@@ -1,0 +1,12 @@
+{
+  "current_room": "PLEASE ANSWER THE QUESTION.",
+  "rooms": {
+    "PLEASE ANSWER THE QUESTION.": {
+      "label": "PLEASE ANSWER THE QUESTION.",
+      "seen_count": 1,
+      "exits_mentioned": []
+    }
+  },
+  "edges": [],
+  "frontier": []
+}

@@ -36,6 +36,7 @@ AdventureGPT now includes:
 - **Heuristic state tracking** (`adventuregpt/state.py`): extracts a compact state summary (turn, last command, inventory hints, mentioned directions, recent output snippet).
 - **Bounded prompt memory** (`adventuregpt/memory.py`): keeps a rolling window of messages and (when an LLM is available) periodically summarizes older history into a short memory summary.
 - **Command normalization + loop breaking** (`adventuregpt/command_safety.py`): converts model output into a single short command and attempts to break out of simple repetition loops.
+- **Map tracking** (`adventuregpt/map_agent.py`, `adventuregpt/map_graph.py`): builds a room/exit graph during play, tracks frontier exits, and writes `map.json` into each run directory.
 
 ### Smoke test (no OpenAI calls)
 

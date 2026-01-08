@@ -221,6 +221,15 @@ class RunArtifacts:
         with self.history_dump_path.open("w", encoding="utf-8") as fp:
             pprint.pprint(history, stream=fp)
 
+    def write_json(self, relative_name: str, data: Any) -> None:
+        """
+        Write a JSON file under the run directory.
+        """
+
+        path = self.run_dir / relative_name
+        with path.open("w", encoding="utf-8") as fp:
+            json.dump(data, fp, ensure_ascii=False, indent=2)
+
     def finalize(self) -> None:
         """
         Write metrics.json.
