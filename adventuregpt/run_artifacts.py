@@ -83,6 +83,11 @@ class RunArtifacts:
                 "total_tokens": 0,
             },
             "estimated_cost_usd": 0.0,
+            "map": {
+                "rooms_discovered": 0,
+                "transitions_recorded": 0,
+                "frontier_size": 0,
+            },
             "steps": 0,
             "commands_sent": 0,
             "tasks_completed": 0,
@@ -153,6 +158,17 @@ class RunArtifacts:
             self.metrics["estimated_cost_usd"] = float(self.metrics.get("estimated_cost_usd", 0.0) or 0.0) + (
                 (in_tok / 1000.0) * float(rate_in) + (out_tok / 1000.0) * float(rate_out)
             )
+
+    def set_map_stats(self, *, rooms_discovered: int, transitions_recorded: int, frontier_size: int) -> None:
+        """
+        Record map statistics for the run.
+        """
+
+        self.metrics["map"] = {
+            "rooms_discovered": int(rooms_discovered),
+            "transitions_recorded": int(transitions_recorded),
+            "frontier_size": int(frontier_size),
+        }
 
     def configure_logging(self, level: int = logging.INFO) -> None:
         """

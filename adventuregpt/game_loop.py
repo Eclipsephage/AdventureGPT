@@ -14,7 +14,6 @@ Usage:
 from __future__ import annotations
 
 import re
-import sys
 import time
 from time import sleep
 from typing import Dict, List, Optional
@@ -37,6 +36,8 @@ from .memory import MemoryConfig, MemoryManager
 from .planner import WinPlanner
 from .run_artifacts import RunArtifacts
 from .state import GameStateTracker
+from .navigator import suggest_frontier_move
+from .ui_hooks import StdoutUI, UIHooks
 
 
 BAUD = 1200
@@ -55,6 +56,7 @@ class GameLoop:
         llm: Optional[LLMClient] = None,
         max_steps: Optional[int] = None,
         max_seconds: Optional[float] = None,
+        ui: Optional[UIHooks] = None,
     ):
         self.walkthrough_path = walkthrough_path or None
         self.artifacts = artifacts
@@ -63,6 +65,7 @@ class GameLoop:
         self.max_steps = int(max_steps) if max_steps is not None else None
         self.max_seconds = float(max_seconds) if max_seconds is not None else None
         self._started_monotonic: Optional[float] = None
+        self.ui: UIHooks = ui or StdoutUI()
 
         self.history: List[Dict[str, str]] = []
         self.game_tasks = SingleTaskListStorage()
@@ -83,15 +86,12 @@ class GameLoop:
         Slowly print output to stdout to emulate terminal baud output.
         """
 
-        out = sys.stdout
         if self.dry_run:
-            out.write(s)
-            out.flush()
+            self.ui.on_output(s)
             return
         for c in s:
             sleep(9.0 / BAUD)  # 8 bits + 1 stop bit @ the given baud rate
-            out.write(c)
-            out.flush()
+            self.ui.on_output(c)
 
     def _append_history(self, role: str, content: str) -> None:
         """
@@ -112,9 +112,7 @@ class GameLoop:
         Pop the next task, recording the previous as completed.
         """
 
-        print("***************** TASK LIST *******************")
-        print(self.game_tasks)
-        print()
+        self.ui.on_task_list(str(self.game_tasks))
 
         if self.current_task:
             self.completed_tasks.append({"task_name": self.current_task})
@@ -173,7 +171,7 @@ class GameLoop:
         Main game loop.
         """
 
-        print("***************** INITIALIZING GAME *******************")
+        self.ui.on_status("***************** INITIALIZING GAME *******************")
 
         self._init_tasks()
 
@@ -261,7 +259,7 @@ class GameLoop:
             command_output = self.game.do_command(words)
             self._append_history("system", command_output)
 
-            self._baudout(f"> {command}\n\n")
+            self.ui.on_command(command)
             self._baudout(command_output)
 
             self.artifacts.write_command(command)
@@ -317,4 +315,10 @@ class GameLoop:
         self.artifacts.write_history_dump(self.history)
         # Persist map artifact for replay/debugging.
         self.artifacts.write_json("map.json", self.map_agent.graph.to_dict())
+        # Record map stats in metrics.
+        self.artifacts.set_map_stats(
+            rooms_discovered=len(self.map_agent.graph.rooms),
+            transitions_recorded=len(self.map_agent.graph.edges),
+            frontier_size=len(self.map_agent.graph.frontier()),
+        )
 

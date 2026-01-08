@@ -361,6 +361,10 @@ The games text parser is limited, keep your commands to one action and 1-3 words
 
 """
     prompt += f"Choose the next game input based on the following objective: {objective}\n"
+    prompt += (
+        "\nIf MAP/STATE suggests a frontier move (an untried exit), prefer exploring it when your objective is exploration.\n"
+        "Return only the command text (no explanations)."
+    )
     prompt += f"\nThe following objectives have been completed\n{completed_tasks}\n\n"
     prompt += 'Take into account these previously completed tasks in the chat history'
     first_history_index = 0 if len(history) <= max_history else -1 * max_history

@@ -44,6 +44,20 @@ AdventureGPT now includes:
 python -m adventuregpt --dry_run
 ```
 
+### TUI (curses)
+
+```bash
+python -m adventuregpt.tui
+```
+
+You can also combine with `--dry_run` to validate UI wiring without OpenAI.
+
+### Replay a run
+
+```bash
+python -m adventuregpt.replay --run_dir runs/<timestamp>
+```
+
 ### Evaluation harness
 
 Run multiple sessions and produce an aggregate report:

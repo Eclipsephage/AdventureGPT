@@ -17,6 +17,13 @@ from .map_graph import MapGraph
 
 
 _MOVE_COMMANDS = {"north", "south", "east", "west", "up", "down", "in", "out"}
+_META_PATTERNS = (
+    "welcome to adventure",
+    "please answer the question",
+    "i don't understand",
+    "i dont understand",
+    "you are not carrying anything",
+)
 
 
 def _first_nonempty_line(text: str) -> Optional[str]:
@@ -48,11 +55,38 @@ def _is_meta_line(line: str) -> bool:
     l = (line or "").strip().lower()
     if not l:
         return True
-    if "welcome to adventure" in l:
+    if any(p in l for p in _META_PATTERNS):
         return True
-    if l.endswith("?") and "would you like" in l:
+    if l.endswith("?") and ("would you like" in l or "do you want" in l):
         return True
     return False
+
+
+def _extract_room_label(output: str) -> Optional[str]:
+    """
+    Best-effort extraction of a stable-ish room label from output.
+
+    Strategy:
+    - Prefer "You are in/at ..." sentences if present.
+    - Otherwise, use the first non-empty line that isn't meta.
+    """
+
+    text = output or ""
+    lowered = text.lower()
+    m = re.search(r"\byou are (in|at)\b\s+(.+?)([.!]\s|$)", lowered)
+    if m:
+        # Return original-cased slice if possible; otherwise return normalized.
+        return ("you are " + m.group(1) + " " + m.group(2)).strip()
+
+    # fallback: first non-empty non-meta line
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if _is_meta_line(s):
+            continue
+        return s
+    return None
 
 
 class MapAgent:
@@ -84,8 +118,11 @@ class MapAgent:
         Observe system output after a command and update map.
         """
 
-        line = _first_nonempty_line(output) or "UNKNOWN"
-        if _is_meta_line(line):
+        label = _extract_room_label(output)
+        if not label:
+            label = _first_nonempty_line(output) or "UNKNOWN"
+
+        if _is_meta_line(label):
             # Still record directions mentioned, but don't treat as a room transition.
             exits = _extract_directions(output)
             if self.graph.current_room and exits:
@@ -93,7 +130,7 @@ class MapAgent:
             return
 
         exits = _extract_directions(output)
-        new_room = self.graph.observe_room(line, exits_mentioned=exits)
+        new_room = self.graph.observe_room(label, exits_mentioned=exits)
 
         if self._pending_move_dir and self._pending_from_room:
             self.graph.record_transition(self._pending_from_room, self._pending_move_dir, new_room)

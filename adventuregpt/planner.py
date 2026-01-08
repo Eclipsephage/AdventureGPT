@@ -19,6 +19,7 @@ from typing import Dict, List, Optional
 from .agent import SingleTaskListStorage, openai_task_response_to_list, prompt_to_history, openai_call
 from .llm_client import LLMClient
 from .map_graph import MapGraph
+from .navigator import suggest_frontier_move
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ def heuristic_plan(graph: MapGraph) -> SingleTaskListStorage:
     # Always keep a couple generic “information gathering” tasks.
     tasks.extend(
         [
+            {"task_name": f"Try moving {suggest_frontier_move(graph) or 'north'} to explore"} ,
             {"task_name": "Look around carefully"},
             {"task_name": "Check inventory"},
             {"task_name": "Examine visible objects"},
