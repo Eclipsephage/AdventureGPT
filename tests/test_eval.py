@@ -16,6 +16,7 @@ def test_aggregate_metrics_basic() -> None:
             "errors": [],
             "tokens": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
             "estimated_cost_usd": 0.01,
+            "outcome": {"is_victory": False, "score": 10},
         },
         {
             "steps": 4,
@@ -24,6 +25,7 @@ def test_aggregate_metrics_basic() -> None:
             "errors": ["x"],
             "tokens": {"input_tokens": 2, "output_tokens": 3, "total_tokens": 5},
             "estimated_cost_usd": 0.0,
+            "outcome": {"is_victory": True, "score": 20},
         },
     ]
     summary = aggregate_metrics(metrics)
@@ -36,4 +38,8 @@ def test_aggregate_metrics_basic() -> None:
     assert summary["total_output_tokens"] == 8
     assert summary["total_tokens"] == 20
     assert summary["total_estimated_cost_usd"] == 0.01
+    assert summary["wins"] == 1
+    assert summary["win_rate"] == 0.5
+    assert summary["avg_score"] == 15
+    assert summary["best_score"] == 20
 

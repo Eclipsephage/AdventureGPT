@@ -74,6 +74,8 @@ def _extract_room_label(output: str) -> Optional[str]:
 
     text = output or ""
     lowered = text.lower()
+
+    # Prefer explicit "You are in/at ..." sentences if present.
     m = re.search(r"\byou are (in|at)\b\s+(.+?)([.!]\s|$)", lowered)
     if m:
         # Use the described place as a room label key.
@@ -81,6 +83,16 @@ def _extract_room_label(output: str) -> Optional[str]:
         # Avoid extremely long labels.
         place = " ".join(place.split())[:120]
         return place
+
+    # Prefer a short, title-like first line (often room name).
+    first = _first_nonempty_line(text)
+    if first and not _is_meta_line(first):
+        # Heuristic: short line, no trailing punctuation, and either Title Case or ALL CAPS.
+        is_short = len(first) <= 60
+        no_punct_tail = not re.search(r"[.!?]$", first.strip())
+        is_titleish = first.isupper() or first.istitle()
+        if is_short and no_punct_tail and is_titleish:
+            return first.strip()
 
     # fallback: first non-empty non-meta line
     for line in text.splitlines():

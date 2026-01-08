@@ -38,6 +38,8 @@ from .run_artifacts import RunArtifacts
 from .state import GameStateTracker
 from .navigator import suggest_frontier_move
 from .ui_hooks import StdoutUI, UIHooks
+from .outcome import detect_outcome
+from .navigation_tasks import next_command_for_objective
 
 
 BAUD = 1200
@@ -108,6 +110,15 @@ class GameLoop:
         if role == "system":
             self.state.observe_system_output(content)
             self.map_agent.observe_output(content)
+            oc = detect_outcome(content)
+            if oc is not None:
+                self.artifacts.set_outcome(
+                    is_game_over=oc.is_game_over,
+                    is_victory=oc.is_victory,
+                    score=oc.score,
+                    max_score=oc.max_score,
+                    reason=oc.reason,
+                )
 
     def _next_game_task(self) -> None:
         """
@@ -216,10 +227,22 @@ class GameLoop:
                     self.artifacts.record_error("Unable to generate a non-empty task list.")
                     break
 
+            # Deterministic navigation step if objective matches a known pattern.
+            if not self.dry_run and self.current_task:
+                nav = next_command_for_objective(self.current_task, graph=self.map_agent.graph)
+                if nav is not None:
+                    # Treat this as the chosen command; skip LLM for this turn.
+                    result = nav.command
+                    self._append_history("assistant", f"[navigation:{nav.reason}] {result}")
+                else:
+                    result = None
+            else:
+                result = None
+
             # Ask Player Agent what to do next
             if self.dry_run:
                 result = "look"
-            else:
+            elif result is None:
                 state_summary = self.state.format_summary()
                 map_summary = self.map_agent.format_prompt_addendum()
                 self.ui.on_info(
@@ -238,7 +261,7 @@ class GameLoop:
                     self.completed_tasks,
                     llm=self.llm,
                 )
-            self._append_history("assistant", result)
+                self._append_history("assistant", result)
 
             # Normalize to a single safe command.
             command = normalize_command_text(result)

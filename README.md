@@ -38,6 +38,7 @@ AdventureGPT now includes:
 - **Bounded prompt memory** (`adventuregpt/memory.py`): keeps a rolling window of messages and (when an LLM is available) periodically summarizes older history into a short memory summary.
 - **Command normalization + loop breaking** (`adventuregpt/command_safety.py`): converts model output into a single short command and attempts to break out of simple repetition loops.
 - **Map tracking** (`adventuregpt/map_agent.py`, `adventuregpt/map_graph.py`): builds a room/exit graph during play, tracks frontier exits, and writes `map.json` into each run directory.
+- **Deterministic navigation for map objectives** (`adventuregpt/navigation_tasks.py`): if an objective matches patterns like `Explore east from <room>`, AdventureGPT will route to `<room>` using known map edges before exploring.
 
 ### Smoke test (no OpenAI calls)
 
@@ -107,6 +108,10 @@ python -m adventuregpt.eval --runs 3 --max_steps 200 \
   --cost_per_1k_input_usd 0.15 \
   --cost_per_1k_output_usd 0.60
 ```
+
+#### Win rate / score reporting
+
+Eval summaries include `wins`, `win_rate`, and score fields when the game outputs a score line (heuristic detection).
 
 ## TODO
 

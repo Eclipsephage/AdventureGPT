@@ -88,6 +88,13 @@ class RunArtifacts:
                 "transitions_recorded": 0,
                 "frontier_size": 0,
             },
+            "outcome": {
+                "is_game_over": False,
+                "is_victory": False,
+                "score": None,
+                "max_score": None,
+                "reason": None,
+            },
             "steps": 0,
             "commands_sent": 0,
             "tasks_completed": 0,
@@ -168,6 +175,27 @@ class RunArtifacts:
             "rooms_discovered": int(rooms_discovered),
             "transitions_recorded": int(transitions_recorded),
             "frontier_size": int(frontier_size),
+        }
+
+    def set_outcome(
+        self,
+        *,
+        is_game_over: bool,
+        is_victory: bool,
+        score: Optional[int] = None,
+        max_score: Optional[int] = None,
+        reason: Optional[str] = None,
+    ) -> None:
+        """
+        Record detected game outcome.
+        """
+
+        self.metrics["outcome"] = {
+            "is_game_over": bool(is_game_over),
+            "is_victory": bool(is_victory),
+            "score": int(score) if score is not None else None,
+            "max_score": int(max_score) if max_score is not None else None,
+            "reason": reason,
         }
 
     def configure_logging(self, level: int = logging.INFO) -> None:

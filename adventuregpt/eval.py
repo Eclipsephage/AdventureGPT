@@ -130,9 +130,15 @@ def aggregate_metrics(all_metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_output_tokens = sum(int((m.get("tokens") or {}).get("output_tokens", 0) or 0) for m in all_metrics)
     total_total_tokens = sum(int((m.get("tokens") or {}).get("total_tokens", 0) or 0) for m in all_metrics)
     total_cost = sum(float(m.get("estimated_cost_usd", 0.0) or 0.0) for m in all_metrics)
+    wins = sum(1 for m in all_metrics if (m.get("outcome") or {}).get("is_victory") is True)
+    scores = [int((m.get("outcome") or {}).get("score")) for m in all_metrics if (m.get("outcome") or {}).get("score") is not None]
 
     return {
         "runs": runs,
+        "wins": wins,
+        "win_rate": (wins / runs) if runs else 0.0,
+        "avg_score": (sum(scores) / len(scores)) if scores else None,
+        "best_score": max(scores) if scores else None,
         "total_steps": total_steps,
         "total_commands_sent": total_commands,
         "total_tasks_completed": total_tasks,
