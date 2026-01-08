@@ -57,7 +57,7 @@ This writes `report.json` and `report.csv` under `./eval_runs/<timestamp>/`.
 
 ```bash
 export OPENAI_API_KEY="..."
-python -m adventuregpt.eval --runs 3 --max_steps 200 --model gpt-4o-mini
+python -m adventuregpt.eval --runs 3 --max_steps 200 --max_seconds 60 --model gpt-4o-mini
 ```
 
 #### Optional cost estimation

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import sys
+import time
 from time import sleep
 from typing import Dict, List, Optional
 
@@ -51,12 +52,15 @@ class GameLoop:
         dry_run: bool = False,
         llm: Optional[LLMClient] = None,
         max_steps: Optional[int] = None,
+        max_seconds: Optional[float] = None,
     ):
         self.walkthrough_path = walkthrough_path or None
         self.artifacts = artifacts
         self.dry_run = bool(dry_run)
         self.llm = llm
         self.max_steps = int(max_steps) if max_steps is not None else None
+        self.max_seconds = float(max_seconds) if max_seconds is not None else None
+        self._started_monotonic: Optional[float] = None
 
         self.history: List[Dict[str, str]] = []
         self.game_tasks = SingleTaskListStorage()
@@ -163,6 +167,7 @@ class GameLoop:
         self.game = Game()
         load_advent_dat(self.game)
         self.game.start()
+        self._started_monotonic = time.monotonic()
 
         next_input = self.game.output
         self._baudout(next_input)
@@ -170,6 +175,13 @@ class GameLoop:
 
         dry_stop = False
         while not self.game.is_finished:
+            if (
+                self.max_seconds is not None
+                and self._started_monotonic is not None
+                and (time.monotonic() - self._started_monotonic) >= self.max_seconds
+            ):
+                self.artifacts.record_error(f"Stopped due to max_seconds limit ({self.max_seconds}).")
+                break
             if self.max_steps is not None and int(self.artifacts.metrics.get("steps", 0)) >= self.max_steps:
                 self.artifacts.record_error(f"Stopped due to max_steps limit ({self.max_steps}).")
                 break
@@ -217,6 +229,13 @@ class GameLoop:
             self.artifacts.increment("steps", 1)
             if self.max_steps is not None and int(self.artifacts.metrics.get("steps", 0)) >= self.max_steps:
                 self.artifacts.record_error(f"Stopped due to max_steps limit ({self.max_steps}).")
+                break
+            if (
+                self.max_seconds is not None
+                and self._started_monotonic is not None
+                and (time.monotonic() - self._started_monotonic) >= self.max_seconds
+            ):
+                self.artifacts.record_error(f"Stopped due to max_seconds limit ({self.max_seconds}).")
                 break
 
             command_output = self.game.do_command(words)

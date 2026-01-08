@@ -35,6 +35,7 @@ class EvalConfig:
     temperature: float
     max_output_tokens: int
     max_steps: int
+    max_seconds: float
     cost_per_1k_input_usd: Optional[float]
     cost_per_1k_output_usd: Optional[float]
 
@@ -56,6 +57,12 @@ def parse_args(argv: Optional[list[str]] = None) -> EvalConfig:
     parser.add_argument("--temperature", type=float, default=0.0, help="Temperature (non-dry-run).")
     parser.add_argument("--max_output_tokens", type=int, default=2000, help="Max output tokens cap.")
     parser.add_argument("--max_steps", type=int, default=200, help="Max steps per run before stopping.")
+    parser.add_argument(
+        "--max_seconds",
+        type=float,
+        default=60.0,
+        help="Max wall-clock seconds per run before stopping.",
+    )
     parser.add_argument(
         "--cost_per_1k_input_usd",
         type=float,
@@ -80,6 +87,7 @@ def parse_args(argv: Optional[list[str]] = None) -> EvalConfig:
         temperature=float(ns.temperature),
         max_output_tokens=int(ns.max_output_tokens),
         max_steps=int(ns.max_steps),
+        max_seconds=float(ns.max_seconds),
         cost_per_1k_input_usd=ns.cost_per_1k_input_usd,
         cost_per_1k_output_usd=ns.cost_per_1k_output_usd,
     )
@@ -212,6 +220,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             dry_run=cfg.dry_run,
             llm=llm,
             max_steps=cfg.max_steps,
+            max_seconds=cfg.max_seconds,
         )
 
         try:
@@ -233,6 +242,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             "temperature": cfg.temperature,
             "max_output_tokens": cfg.max_output_tokens,
             "max_steps": cfg.max_steps,
+            "max_seconds": cfg.max_seconds,
             "cost_per_1k_input_usd": cfg.cost_per_1k_input_usd,
             "cost_per_1k_output_usd": cfg.cost_per_1k_output_usd,
         },
