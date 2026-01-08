@@ -34,7 +34,7 @@ import openai
 import re
 import time
 
-from typing import Dict, List, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 from collections import deque
 
 
@@ -43,13 +43,16 @@ MAX_LLM_TOKEN = 4096
 OPENAI_TEMPERATURE = 0.0
 
 
-api_key = os.environ.get("OPENAI_API_KEY")
+def _get_openai_api_key() -> Optional[str]:
+    """
+    Return the OpenAI API key from environment, if available.
 
-if not api_key:
-    api_key = input("OpenAI Key:")
-    os.environ["OPENAI_API_KEY"] = api_key
+    Phase 0 behavior:
+    - Do NOT prompt for keys at import-time (breaks non-interactive runs/tests).
+    - Instead, raise a clear error when an API call is attempted without a key.
+    """
 
-openai.api_key = api_key
+    return os.environ.get("OPENAI_API_KEY")
 
 
 def prompt_to_history(prompt: str) -> List[Dict[str, str]]:
@@ -62,6 +65,9 @@ def prompt_to_history(prompt: str) -> List[Dict[str, str]]:
 def chunk_tokens_from_string(string: str, model: str = LLM_MODEL, chunk_size: int = 500) -> List[str]:
     """
     Chunks the string into blocks based on a number of tokens (estimated).
+
+    Notes:
+        This currently uses whitespace splitting as a token estimate.
     """
     tokens = string.split()
     total = len(tokens)
@@ -74,13 +80,13 @@ def chunk_tokens_from_string(string: str, model: str = LLM_MODEL, chunk_size: in
            chunks.append(" ".join(tokens[start_idx:start_idx + chunk_size]))
         else:
            chunks.append(" ".join(tokens[start_idx:]))
-        multipier += 1
+        multiplier += 1
 
     return chunks
 
 
 def openai_call(
-    messages: str,
+    messages: List[Dict[str, str]],
     model: str = LLM_MODEL,
     temperature: float = OPENAI_TEMPERATURE,
     max_tokens: int = 100,
@@ -89,6 +95,13 @@ def openai_call(
     Call OpenAI using its chat completion API. Covers some nice expected
     scenarios when hitting the API, such as rate limiting
     """
+    api_key = _get_openai_api_key()
+    if not api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY is not set. Please set it in your environment to run AdventureGPT."
+        )
+    openai.api_key = api_key
+
     while True:
         try:
             # Use 4000 instead of the real limit (4097) to give a bit of wiggle room for the encoding of roles.
@@ -143,40 +156,67 @@ class SingleTaskListStorage:
     A task list for storing game tasks
     """
 
-    def __init__(self, initial_list: list = []):
-        self.tasks = deque(initial_list)
+    def __init__(self, initial_list: Optional[Iterable[Dict[str, Any]]] = None):
+        """
+        Create a new task storage.
+
+        Args:
+            initial_list: Optional iterable of dicts like {"task_name": "..."}.
+        """
+
+        self.tasks = deque(initial_list or [])
         self.task_id_counter = 0
 
-    def append(self, task: Dict):
+    def append(self, task: Dict[str, Any]) -> None:
         self.tasks.append(task)
 
-    def replace(self, tasks: List[Dict]):
+    def replace(self, tasks: List[Dict[str, Any]]) -> None:
         self.tasks = deque(tasks)
 
-    def concat(self, tasks):
-        self.tasks += deque(tasks.tasks)
+    def concat(self, tasks: Union["SingleTaskListStorage", Iterable[Dict[str, Any]]]) -> None:
+        """
+        Concatenate tasks into this storage.
 
-    def popleft(self):
+        Accepts either another SingleTaskListStorage or any iterable of task dicts.
+        """
+
+        if isinstance(tasks, SingleTaskListStorage):
+            self.tasks += deque(tasks.tasks)
+            return
+
+        self.tasks += deque(tasks)
+
+    def popleft(self) -> Optional[Dict[str, Any]]:
+        """
+        Pop the next task, returning None if empty.
+        """
+
+        if not self.tasks:
+            return None
         return self.tasks.popleft()
 
-    def is_empty(self):
+    def is_empty(self) -> bool:
         return False if self.tasks else True
 
-    def next_task_id(self):
+    def next_task_id(self) -> int:
         self.task_id_counter += 1
         return self.task_id_counter
 
-    def get_task_names(self):
-        return [t["task_name"] for t in self.tasks]
+    def get_task_names(self) -> List[str]:
+        return [str(t.get("task_name", "")) for t in self.tasks if t.get("task_name")]
 
-    def __repr__(self):
-        self.tasks
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(tasks={list(self.tasks)!r})"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "\n".join([f'{i}. {t["task_name"]}' for i, t in enumerate(self.tasks)])
 
 
 def openai_task_response_to_list(response: str):
+    """
+    Convert a numbered list response into a list of task dicts.
+    """
+
     new_tasks = response.split('\n')
     new_tasks_list = []
     for task_string in new_tasks:

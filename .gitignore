@@ -161,3 +161,6 @@ cython_debug/
 
 # DON'T commit your OpenAI Key
 openai-key.txt
+
+# AdventureGPT run artifacts
+runs/
