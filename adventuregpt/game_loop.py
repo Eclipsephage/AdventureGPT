@@ -50,11 +50,13 @@ class GameLoop:
         artifacts: RunArtifacts,
         dry_run: bool = False,
         llm: Optional[LLMClient] = None,
+        max_steps: Optional[int] = None,
     ):
         self.walkthrough_path = walkthrough_path or None
         self.artifacts = artifacts
         self.dry_run = bool(dry_run)
         self.llm = llm
+        self.max_steps = int(max_steps) if max_steps is not None else None
 
         self.history: List[Dict[str, str]] = []
         self.game_tasks = SingleTaskListStorage()
@@ -168,6 +170,9 @@ class GameLoop:
 
         dry_stop = False
         while not self.game.is_finished:
+            if self.max_steps is not None and int(self.artifacts.metrics.get("steps", 0)) >= self.max_steps:
+                self.artifacts.record_error(f"Stopped due to max_steps limit ({self.max_steps}).")
+                break
             if not self.current_task:
                 # If tasks are exhausted, generate more from history.
                 if self.walkthrough_path:
@@ -210,6 +215,9 @@ class GameLoop:
             self.loop_breaker.record(command)
             self.state.observe_command(command)
             self.artifacts.increment("steps", 1)
+            if self.max_steps is not None and int(self.artifacts.metrics.get("steps", 0)) >= self.max_steps:
+                self.artifacts.record_error(f"Stopped due to max_steps limit ({self.max_steps}).")
+                break
 
             command_output = self.game.do_command(words)
             self._append_history("system", command_output)

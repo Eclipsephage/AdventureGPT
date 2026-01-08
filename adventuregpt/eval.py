@@ -34,6 +34,9 @@ class EvalConfig:
     model: str
     temperature: float
     max_output_tokens: int
+    max_steps: int
+    cost_per_1k_input_usd: Optional[float]
+    cost_per_1k_output_usd: Optional[float]
 
 
 def _utc_stamp() -> str:
@@ -52,6 +55,19 @@ def parse_args(argv: Optional[list[str]] = None) -> EvalConfig:
     parser.add_argument("--model", default="gpt-4o-mini", help="Model to use (non-dry-run).")
     parser.add_argument("--temperature", type=float, default=0.0, help="Temperature (non-dry-run).")
     parser.add_argument("--max_output_tokens", type=int, default=2000, help="Max output tokens cap.")
+    parser.add_argument("--max_steps", type=int, default=200, help="Max steps per run before stopping.")
+    parser.add_argument(
+        "--cost_per_1k_input_usd",
+        type=float,
+        default=None,
+        help="Optional cost estimate: USD per 1k input tokens.",
+    )
+    parser.add_argument(
+        "--cost_per_1k_output_usd",
+        type=float,
+        default=None,
+        help="Optional cost estimate: USD per 1k output tokens.",
+    )
     ns = parser.parse_args(argv)
 
     out_dir = Path(ns.out_dir) if ns.out_dir else Path("eval_runs") / _utc_stamp()
@@ -63,6 +79,9 @@ def parse_args(argv: Optional[list[str]] = None) -> EvalConfig:
         model=str(ns.model),
         temperature=float(ns.temperature),
         max_output_tokens=int(ns.max_output_tokens),
+        max_steps=int(ns.max_steps),
+        cost_per_1k_input_usd=ns.cost_per_1k_input_usd,
+        cost_per_1k_output_usd=ns.cost_per_1k_output_usd,
     )
 
 
@@ -78,15 +97,25 @@ def aggregate_metrics(all_metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_steps = _sum("steps")
     total_commands = _sum("commands_sent")
     total_tasks = _sum("tasks_completed")
+    total_input_tokens = sum(int((m.get("tokens") or {}).get("input_tokens", 0) or 0) for m in all_metrics)
+    total_output_tokens = sum(int((m.get("tokens") or {}).get("output_tokens", 0) or 0) for m in all_metrics)
+    total_total_tokens = sum(int((m.get("tokens") or {}).get("total_tokens", 0) or 0) for m in all_metrics)
+    total_cost = sum(float(m.get("estimated_cost_usd", 0.0) or 0.0) for m in all_metrics)
 
     return {
         "runs": runs,
         "total_steps": total_steps,
         "total_commands_sent": total_commands,
         "total_tasks_completed": total_tasks,
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_tokens": total_total_tokens,
+        "total_estimated_cost_usd": total_cost,
         "avg_steps": (total_steps / runs) if runs else 0.0,
         "avg_commands_sent": (total_commands / runs) if runs else 0.0,
         "avg_tasks_completed": (total_tasks / runs) if runs else 0.0,
+        "avg_total_tokens": (total_total_tokens / runs) if runs else 0.0,
+        "avg_estimated_cost_usd": (total_cost / runs) if runs else 0.0,
         "errors_count": sum(len(m.get("errors", []) or []) for m in all_metrics),
     }
 
@@ -111,6 +140,10 @@ def write_csv(rows: List[Dict[str, Any]], path: Path) -> None:
         "steps",
         "commands_sent",
         "tasks_completed",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "estimated_cost_usd",
         "errors_count",
     ]
 
@@ -127,6 +160,10 @@ def write_csv(rows: List[Dict[str, Any]], path: Path) -> None:
                     "steps": r.get("steps", 0),
                     "commands_sent": r.get("commands_sent", 0),
                     "tasks_completed": r.get("tasks_completed", 0),
+                    "input_tokens": (r.get("tokens") or {}).get("input_tokens", 0),
+                    "output_tokens": (r.get("tokens") or {}).get("output_tokens", 0),
+                    "total_tokens": (r.get("tokens") or {}).get("total_tokens", 0),
+                    "estimated_cost_usd": r.get("estimated_cost_usd", 0.0),
                     "errors_count": len(r.get("errors", []) or []),
                 }
             )
@@ -135,19 +172,6 @@ def write_csv(rows: List[Dict[str, Any]], path: Path) -> None:
 def main(argv: Optional[list[str]] = None) -> int:
     cfg = parse_args(argv)
     cfg.out_dir.mkdir(parents=True, exist_ok=True)
-
-    llm = None
-    if not cfg.dry_run:
-        import os
-
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set (required for non-dry-run eval).")
-        base = OpenAIResponsesClient(
-            api_key=api_key,
-            config=OpenAIResponsesConfig(model=cfg.model, temperature=cfg.temperature),
-        )
-        llm = CappedLLMClient(base, max_output_tokens_cap=cfg.max_output_tokens)
 
     per_run: List[Dict[str, Any]] = []
     stamp = _utc_stamp()
@@ -163,12 +187,31 @@ def main(argv: Optional[list[str]] = None) -> int:
             max_output_tokens=cfg.max_output_tokens,
             dry_run=cfg.dry_run,
         )
+        artifacts.set_cost_rates(
+            cost_per_1k_input_usd=cfg.cost_per_1k_input_usd,
+            cost_per_1k_output_usd=cfg.cost_per_1k_output_usd,
+        )
+
+        llm = None
+        if not cfg.dry_run:
+            import os
+
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY is not set (required for non-dry-run eval).")
+            base = OpenAIResponsesClient(
+                api_key=api_key,
+                config=OpenAIResponsesConfig(model=cfg.model, temperature=cfg.temperature),
+                on_usage=artifacts.add_usage,
+            )
+            llm = CappedLLMClient(base, max_output_tokens_cap=cfg.max_output_tokens)
 
         loop = GameLoop(
             walkthrough_path=None,
             artifacts=artifacts,
             dry_run=cfg.dry_run,
             llm=llm,
+            max_steps=cfg.max_steps,
         )
 
         try:
@@ -189,6 +232,9 @@ def main(argv: Optional[list[str]] = None) -> int:
             "model": cfg.model,
             "temperature": cfg.temperature,
             "max_output_tokens": cfg.max_output_tokens,
+            "max_steps": cfg.max_steps,
+            "cost_per_1k_input_usd": cfg.cost_per_1k_input_usd,
+            "cost_per_1k_output_usd": cfg.cost_per_1k_output_usd,
         },
         "summary": aggregate_metrics(per_run),
         "runs": per_run,

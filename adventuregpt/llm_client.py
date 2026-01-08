@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from typing import Callable, Optional, Protocol
 
 from .llm_types import Messages
 
@@ -45,12 +45,19 @@ class OpenAIResponsesClient:
     OpenAI-backed LLM client using the Responses API.
     """
 
-    def __init__(self, api_key: str, config: OpenAIResponsesConfig):
+    def __init__(
+        self,
+        api_key: str,
+        config: OpenAIResponsesConfig,
+        *,
+        on_usage: Optional[Callable[[dict], None]] = None,
+    ):
         # Import lazily so tests/dry-runs don't require the dependency at import time.
         from openai import OpenAI  # type: ignore
 
         self._client = OpenAI(api_key=api_key)
         self._config = config
+        self._on_usage = on_usage
 
     def respond(self, messages: Messages, *, max_output_tokens: int) -> str:
         """
@@ -66,6 +73,15 @@ class OpenAIResponsesClient:
                     temperature=self._config.temperature,
                     max_output_tokens=max_output_tokens,
                 )
+                usage = getattr(resp, "usage", None)
+                if usage is not None and self._on_usage is not None:
+                    # Best-effort, schema-tolerant usage extraction.
+                    u = {
+                        "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+                        "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+                        "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+                    }
+                    self._on_usage(u)
 
                 # The SDK exposes a convenience accessor for text output.
                 text = getattr(resp, "output_text", None)

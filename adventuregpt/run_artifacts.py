@@ -74,7 +74,15 @@ class RunArtifacts:
                 "model": None,
                 "temperature": None,
                 "max_output_tokens": None,
+                "cost_per_1k_input_usd": None,
+                "cost_per_1k_output_usd": None,
             },
+            "tokens": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+            },
+            "estimated_cost_usd": 0.0,
             "steps": 0,
             "commands_sent": 0,
             "tasks_completed": 0,
@@ -98,7 +106,53 @@ class RunArtifacts:
             "model": model,
             "temperature": float(temperature),
             "max_output_tokens": int(max_output_tokens),
+            "cost_per_1k_input_usd": None,
+            "cost_per_1k_output_usd": None,
         }
+
+    def set_cost_rates(
+        self,
+        *,
+        cost_per_1k_input_usd: Optional[float],
+        cost_per_1k_output_usd: Optional[float],
+    ) -> None:
+        """
+        Configure optional cost estimation rates.
+        """
+
+        self.metrics["llm"]["cost_per_1k_input_usd"] = (
+            float(cost_per_1k_input_usd) if cost_per_1k_input_usd is not None else None
+        )
+        self.metrics["llm"]["cost_per_1k_output_usd"] = (
+            float(cost_per_1k_output_usd) if cost_per_1k_output_usd is not None else None
+        )
+
+    def add_usage(self, usage: Dict[str, Any]) -> None:
+        """
+        Add token usage from an LLM call and update estimated cost if configured.
+
+        Expected keys:
+            - input_tokens
+            - output_tokens
+            - total_tokens
+        """
+
+        tokens = self.metrics.get("tokens") or {}
+        in_tok = int(usage.get("input_tokens", 0) or 0)
+        out_tok = int(usage.get("output_tokens", 0) or 0)
+        tot_tok = int(usage.get("total_tokens", 0) or 0)
+
+        tokens["input_tokens"] = int(tokens.get("input_tokens", 0) or 0) + in_tok
+        tokens["output_tokens"] = int(tokens.get("output_tokens", 0) or 0) + out_tok
+        tokens["total_tokens"] = int(tokens.get("total_tokens", 0) or 0) + tot_tok
+        self.metrics["tokens"] = tokens
+
+        rate_in = self.metrics.get("llm", {}).get("cost_per_1k_input_usd")
+        rate_out = self.metrics.get("llm", {}).get("cost_per_1k_output_usd")
+        if rate_in is not None and rate_out is not None:
+            self.metrics["estimated_cost_usd"] = float(self.metrics.get("estimated_cost_usd", 0.0) or 0.0) + (
+                (in_tok / 1000.0) * float(rate_in) + (out_tok / 1000.0) * float(rate_out)
+            )
 
     def configure_logging(self, level: int = logging.INFO) -> None:
         """

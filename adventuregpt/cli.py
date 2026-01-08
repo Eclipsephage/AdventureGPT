@@ -154,6 +154,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         base_llm = OpenAIResponsesClient(
             api_key=api_key,
             config=OpenAIResponsesConfig(model=args.model, temperature=args.temperature),
+            on_usage=artifacts.add_usage,
         )
         llm = CappedLLMClient(base_llm, max_output_tokens_cap=args.max_output_tokens)
 

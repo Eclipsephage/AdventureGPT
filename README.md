@@ -53,6 +53,23 @@ python -m adventuregpt.eval --runs 10 --dry_run
 
 This writes `report.json` and `report.csv` under `./eval_runs/<timestamp>/`.
 
+#### Non-dry-run eval (real model calls)
+
+```bash
+export OPENAI_API_KEY="..."
+python -m adventuregpt.eval --runs 3 --max_steps 200 --model gpt-4o-mini
+```
+
+#### Optional cost estimation
+
+If you want a rough USD estimate in the reports, provide token rates:
+
+```bash
+python -m adventuregpt.eval --runs 3 --max_steps 200 \
+  --cost_per_1k_input_usd 0.15 \
+  --cost_per_1k_output_usd 0.60
+```
+
 ## TODO
 
 Here is a list of eventual goals for the project:
