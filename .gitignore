@@ -167,6 +167,7 @@ runs/
 
 # Eval harness outputs
 eval_runs/
+eval_trends/
 
 # Example smoke/eval outputs created locally
 runs_smoke/

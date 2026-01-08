@@ -8,6 +8,7 @@ strictly structured.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -25,6 +26,17 @@ def _normalize_room_id(label: str) -> str:
     """
 
     return " ".join((label or "").strip().split()) or "UNKNOWN"
+
+
+def _canonical_key(label: str) -> str:
+    """
+    Canonical key for de-duplicating rooms with slightly different labels.
+    """
+
+    s = (label or "").lower().strip()
+    s = re.sub(r"[^a-z0-9\s]+", " ", s)
+    s = " ".join(s.split())
+    return s or "unknown"
 
 
 @dataclass
@@ -48,6 +60,8 @@ class MapGraph:
     rooms: Dict[RoomId, Room] = field(default_factory=dict)
     edges: Dict[Tuple[RoomId, Direction], RoomId] = field(default_factory=dict)
     current_room: Optional[RoomId] = None
+    # Canonical label key -> room id (for alias/merge).
+    canonical_index: Dict[str, RoomId] = field(default_factory=dict)
 
     def observe_room(self, label: str, *, exits_mentioned: Optional[Set[Direction]] = None) -> RoomId:
         """
@@ -55,10 +69,19 @@ class MapGraph:
         """
 
         rid = _normalize_room_id(label)
+        key = _canonical_key(label)
+        if key in self.canonical_index:
+            rid = self.canonical_index[key]
+        else:
+            self.canonical_index[key] = rid
         room = self.rooms.get(rid)
         if room is None:
             room = Room(room_id=rid, label=label)
             self.rooms[rid] = room
+        else:
+            # Keep the first label, but if the existing label is generic, prefer the newer.
+            if room.label in ("UNKNOWN", "") and label:
+                room.label = label
         room.seen_count += 1
         if exits_mentioned:
             room.exits_mentioned |= set(exits_mentioned)

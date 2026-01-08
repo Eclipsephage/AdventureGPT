@@ -32,6 +32,9 @@ class MemoryConfig:
     # Max output tokens for summarization calls.
     summary_max_output_tokens: int = 400
 
+    # Hard cap prompt size by character count (rough safety budget).
+    max_prompt_chars: int = 12000
+
 
 class MemoryManager:
     """
@@ -79,9 +82,26 @@ class MemoryManager:
 
         if injected_parts:
             injected = {"role": "system", "content": "\n\n".join(injected_parts) + "\n"}
-            return [injected] + history_for_prompt
+            combined = [injected] + history_for_prompt
+        else:
+            combined = history_for_prompt
 
-        return history_for_prompt
+        # Prompt budgeting: ensure total content stays under a rough char cap.
+        total = sum(len(m.get("content", "") or "") for m in combined)
+        if total <= self._config.max_prompt_chars:
+            return combined
+
+        # Drop oldest messages until under budget (keeping injected message).
+        kept = combined[:1] if combined and combined[0].get("role") == "system" else []
+        tail = combined[1:] if kept else combined
+        # keep last messages
+        for m in reversed(tail):
+            if sum(len(x.get("content", "") or "") for x in kept) + len(m.get("content", "") or "") > self._config.max_prompt_chars:
+                continue
+            kept.insert(1 if kept else 0, m)
+        return kept
+
+        return combined
 
     def _summarize(
         self,

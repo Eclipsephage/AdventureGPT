@@ -16,7 +16,7 @@ from typing import Optional
 
 from .game_loop import GameLoop
 from .run_artifacts import RunArtifacts, RunArtifactsConfig
-from .llm_client import CappedLLMClient, OpenAIResponsesClient, OpenAIResponsesConfig
+from .llm_client import CappedLLMClient, CachedLLMClient, OpenAIResponsesClient, OpenAIResponsesConfig
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,7 @@ class CLIArgs:
     model: str
     temperature: float
     max_output_tokens: int
+    planner_model: Optional[str]
 
 
 def parse_args(argv: Optional[list[str]] = None) -> CLIArgs:
@@ -98,6 +99,11 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIArgs:
             "If omitted, uses ADVENTUREGPT_MAX_OUTPUT_TOKENS or 2000."
         ),
     )
+    parser.add_argument(
+        "--planner_model",
+        default=None,
+        help="Optional separate model for the win-planner (defaults to --model).",
+    )
     ns = parser.parse_args(argv)
 
     model = ns.model or os.environ.get("ADVENTUREGPT_MODEL") or "gpt-4o-mini"
@@ -120,6 +126,7 @@ def parse_args(argv: Optional[list[str]] = None) -> CLIArgs:
         model=model,
         temperature=temperature,
         max_output_tokens=max_output_tokens,
+        planner_model=ns.planner_model or os.environ.get("ADVENTUREGPT_PLANNER_MODEL"),
     )
 
 
@@ -145,6 +152,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
 
     llm = None
+    planner_llm = None
     if not args.dry_run:
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
@@ -156,13 +164,25 @@ def main(argv: Optional[list[str]] = None) -> int:
             config=OpenAIResponsesConfig(model=args.model, temperature=args.temperature),
             on_usage=artifacts.add_usage,
         )
-        llm = CappedLLMClient(base_llm, max_output_tokens_cap=args.max_output_tokens)
+        llm = CachedLLMClient(CappedLLMClient(base_llm, max_output_tokens_cap=args.max_output_tokens))
+
+        planner_model = args.planner_model or args.model
+        if planner_model == args.model:
+            planner_llm = llm
+        else:
+            planner_base = OpenAIResponsesClient(
+                api_key=api_key,
+                config=OpenAIResponsesConfig(model=planner_model, temperature=args.temperature),
+                on_usage=artifacts.add_usage,
+            )
+            planner_llm = CachedLLMClient(CappedLLMClient(planner_base, max_output_tokens_cap=args.max_output_tokens))
 
     loop = GameLoop(
         walkthrough_path=args.walkthrough_path,
         artifacts=artifacts,
         dry_run=args.dry_run,
         llm=llm,
+        planner_llm=planner_llm,
     )
 
     try:

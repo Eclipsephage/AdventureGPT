@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .game_loop import GameLoop
-from .llm_client import CappedLLMClient, OpenAIResponsesClient, OpenAIResponsesConfig
+from .llm_client import CappedLLMClient, CachedLLMClient, OpenAIResponsesClient, OpenAIResponsesConfig
 from .run_artifacts import RunArtifacts, RunArtifactsConfig
 from .ui_hooks import UIHooks
 
@@ -65,6 +65,9 @@ class CursesUI(UIHooks):
         self.task_list: str = ""
         self.status: str = ""
         self.last_command: str = ""
+        self.objective: str = ""
+        self.state_summary: str = ""
+        self.map_summary: str = ""
 
     def on_task_list(self, text: str) -> None:
         self.task_list = text or ""
@@ -92,6 +95,12 @@ class CursesUI(UIHooks):
         self.status = text
         self.render()
 
+    def on_info(self, *, objective: str, state_summary: str, map_summary: str) -> None:
+        self.objective = objective or ""
+        self.state_summary = state_summary or ""
+        self.map_summary = map_summary or ""
+        self.render()
+
     def render(self) -> None:
         self.stdscr.erase()
         h, w = self.stdscr.getmaxyx()
@@ -108,14 +117,27 @@ class CursesUI(UIHooks):
         for i, line in enumerate(visible):
             left.addnstr(1 + i, 1, line, left_w - 2)
 
-        # Right pane: tasks/status
+        # Right pane split: tasks + info
         right = self.stdscr.derwin(top_h, right_w, 0, left_w)
         right.box()
-        right.addnstr(0, 2, " Tasks ", right_w - 4)
-        lines = (self.task_list or "").splitlines()
-        for i, line in enumerate(lines[: top_h - 4]):
-            right.addnstr(1 + i, 1, line, right_w - 2)
-        right.addnstr(top_h - 2, 1, f"Last cmd: {self.last_command}", right_w - 2)
+        right.addnstr(0, 2, " Tasks / Info ", right_w - 4)
+        split_y = max(6, int(top_h * 0.55))
+
+        # Tasks section
+        right.addnstr(1, 1, f"Objective: {self.objective}", right_w - 2)
+        task_lines = (self.task_list or "").splitlines()
+        for i, line in enumerate(task_lines[: split_y - 3]):
+            right.addnstr(2 + i, 1, line, right_w - 2)
+
+        # Info section
+        info_start = split_y
+        right.addnstr(info_start, 1, f"Last cmd: {self.last_command}", right_w - 2)
+        info_lines = []
+        info_lines.extend((self.state_summary or "").splitlines())
+        info_lines.append("")
+        info_lines.extend((self.map_summary or "").splitlines())
+        for i, line in enumerate(info_lines[: top_h - info_start - 2]):
+            right.addnstr(info_start + 1 + i, 1, line, right_w - 2)
 
         # Bottom status bar
         bottom = self.stdscr.derwin(3, w, top_h, 0)
@@ -152,7 +174,7 @@ def _run(stdscr: "curses._CursesWindow", args: TUIArgs) -> int:
             config=OpenAIResponsesConfig(model=args.model, temperature=args.temperature),
             on_usage=artifacts.add_usage,
         )
-        llm = CappedLLMClient(base, max_output_tokens_cap=args.max_output_tokens)
+        llm = CachedLLMClient(CappedLLMClient(base, max_output_tokens_cap=args.max_output_tokens))
 
     loop = GameLoop(
         walkthrough_path=None,

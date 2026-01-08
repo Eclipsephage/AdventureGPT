@@ -14,6 +14,7 @@ import re
 from typing import Optional, Set
 
 from .map_graph import MapGraph
+from .navigator import route_to_nearest_frontier, suggest_frontier_move
 
 
 _MOVE_COMMANDS = {"north", "south", "east", "west", "up", "down", "in", "out"}
@@ -75,8 +76,11 @@ def _extract_room_label(output: str) -> Optional[str]:
     lowered = text.lower()
     m = re.search(r"\byou are (in|at)\b\s+(.+?)([.!]\s|$)", lowered)
     if m:
-        # Return original-cased slice if possible; otherwise return normalized.
-        return ("you are " + m.group(1) + " " + m.group(2)).strip()
+        # Use the described place as a room label key.
+        place = m.group(2).strip()
+        # Avoid extremely long labels.
+        place = " ".join(place.split())[:120]
+        return place
 
     # fallback: first non-empty non-meta line
     for line in text.splitlines():
@@ -143,5 +147,17 @@ class MapAgent:
         Map context to inject into prompts.
         """
 
-        return self.graph.format_summary()
+        suggestion = suggest_frontier_move(self.graph)
+        route = route_to_nearest_frontier(self.graph)
+        if route and route.directions:
+            route_str = " -> ".join(route.directions[:6])
+        else:
+            route_str = "none"
+
+        return (
+            self.graph.format_summary()
+            + "## Navigation hints\n"
+            + f"- Suggested frontier move (current room): {suggestion or 'unknown'}\n"
+            + f"- Route to nearest frontier (known edges): {route_str}\n"
+        )
 

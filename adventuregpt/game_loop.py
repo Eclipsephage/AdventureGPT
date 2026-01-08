@@ -54,6 +54,7 @@ class GameLoop:
         artifacts: RunArtifacts,
         dry_run: bool = False,
         llm: Optional[LLMClient] = None,
+        planner_llm: Optional[LLMClient] = None,
         max_steps: Optional[int] = None,
         max_seconds: Optional[float] = None,
         ui: Optional[UIHooks] = None,
@@ -62,6 +63,7 @@ class GameLoop:
         self.artifacts = artifacts
         self.dry_run = bool(dry_run)
         self.llm = llm
+        self.planner_llm = planner_llm
         self.max_steps = int(max_steps) if max_steps is not None else None
         self.max_seconds = float(max_seconds) if max_seconds is not None else None
         self._started_monotonic: Optional[float] = None
@@ -161,7 +163,8 @@ class GameLoop:
                 context_history=self.history,
                 map_graph=self.map_agent.graph,
                 completed_tasks=str(self.completed_tasks),
-                llm=self.llm,
+                blockers=self.state.state.blockers,
+                llm=self.planner_llm or self.llm,
             )
 
         self._next_game_task()
@@ -205,7 +208,8 @@ class GameLoop:
                     context_history=self.history,
                     map_graph=self.map_agent.graph,
                     completed_tasks=str(self.completed_tasks),
-                    llm=self.llm,
+                    blockers=self.state.state.blockers,
+                    llm=self.planner_llm or self.llm,
                 )
                 self._next_game_task()
                 if not self.current_task:
@@ -218,6 +222,11 @@ class GameLoop:
             else:
                 state_summary = self.state.format_summary()
                 map_summary = self.map_agent.format_prompt_addendum()
+                self.ui.on_info(
+                    objective=self.current_task or "",
+                    state_summary=state_summary,
+                    map_summary=map_summary,
+                )
                 context_history = self.memory.build_context(
                     self.history,
                     llm=self.llm,
@@ -285,7 +294,8 @@ class GameLoop:
                     context_history=context_history,
                     map_graph=self.map_agent.graph,
                     completed_tasks=str(self.completed_tasks),
-                    llm=self.llm,
+                    blockers=self.state.state.blockers,
+                    llm=self.planner_llm or self.llm,
                 )
 
             state_summary = self.state.format_summary()

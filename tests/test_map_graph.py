@@ -37,3 +37,11 @@ def test_planner_heuristic_includes_frontier_tasks() -> None:
     names = plan.get_task_names()
     assert any("Explore north" in n for n in names)
 
+
+def test_planner_heuristic_handles_dark_blocker() -> None:
+    g = MapGraph()
+    g.observe_room("Room A", exits_mentioned=set())
+    plan = heuristic_plan(g, blockers=["dark"])
+    names = plan.get_task_names()
+    assert any("lamp" in n.lower() for n in names)
+

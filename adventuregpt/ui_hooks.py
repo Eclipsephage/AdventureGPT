@@ -19,6 +19,7 @@ class UIHooks(Protocol):
     def on_output(self, text: str) -> None: ...
     def on_command(self, command: str) -> None: ...
     def on_status(self, text: str) -> None: ...
+    def on_info(self, *, objective: str, state_summary: str, map_summary: str) -> None: ...
 
 
 @dataclass
@@ -42,4 +43,8 @@ class StdoutUI:
         # Keep status minimal to avoid spam.
         if text:
             print(text)
+
+    def on_info(self, *, objective: str, state_summary: str, map_summary: str) -> None:
+        # Stdout mode doesn't spam these; they live in artifacts anyway.
+        return
 

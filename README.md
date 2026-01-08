@@ -26,6 +26,7 @@ Add a `--help` flag to see the command line arguments.
 
 - **OPENAI_API_KEY**: required for non-`--dry_run` runs.
 - **ADVENTUREGPT_MODEL** / `--model`: choose the model (default `gpt-4o-mini`).
+- **ADVENTUREGPT_PLANNER_MODEL** / `--planner_model`: optional separate model for the win-planner (defaults to `--model`).
 - **ADVENTUREGPT_TEMPERATURE** / `--temperature`: sampling temperature (default `0.0`).
 - **ADVENTUREGPT_MAX_OUTPUT_TOKENS** / `--max_output_tokens`: per-call output cap (default `2000`).
 
@@ -58,6 +59,12 @@ You can also combine with `--dry_run` to validate UI wiring without OpenAI.
 python -m adventuregpt.replay --run_dir runs/<timestamp>
 ```
 
+Replay with pacing and map stats:
+
+```bash
+python -m adventuregpt.replay --run_dir runs/<timestamp> --speed 0.05 --overlay_map_stats
+```
+
 ### Evaluation harness
 
 Run multiple sessions and produce an aggregate report:
@@ -67,6 +74,22 @@ python -m adventuregpt.eval --runs 10 --dry_run
 ```
 
 This writes `report.json` and `report.csv` under `./eval_runs/<timestamp>/`.
+
+#### Eval matrix (models x temperatures)
+
+```bash
+python -m adventuregpt.eval --dry_run --runs 2 --max_steps 1 \
+  --models gpt-4o-mini,gpt-4o-mini \
+  --temperatures 0.0,0.2
+```
+
+This creates `matrix_report.json` at the root and per-combo `report.json`/`report.csv` under subdirectories.
+
+#### Trend report over multiple eval runs
+
+```bash
+python -m adventuregpt.trend --eval_root eval_runs --out_dir eval_trends
+```
 
 #### Non-dry-run eval (real model calls)
 

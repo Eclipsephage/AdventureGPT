@@ -14,7 +14,7 @@ It supports two modes:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from .agent import SingleTaskListStorage, openai_task_response_to_list, prompt_to_history, openai_call
 from .llm_client import LLMClient
@@ -31,12 +31,19 @@ class PlannerConfig:
     max_tasks: int = 8
 
 
-def heuristic_plan(graph: MapGraph) -> SingleTaskListStorage:
+def heuristic_plan(graph: MapGraph, *, blockers: Sequence[str] = ()) -> SingleTaskListStorage:
     """
     Deterministic fallback planning: explore untried exits and gather info.
     """
 
     tasks: List[Dict[str, str]] = []
+
+    blockers = list(blockers or [])
+    if "dark" in blockers:
+        tasks.append({"task_name": "Find and take a lamp or light source"})
+        tasks.append({"task_name": "Turn on the lamp if you have it"})
+    if "needs_yes_no" in blockers:
+        tasks.append({"task_name": "Answer the prompt with yes or no"})
 
     # Prefer current-room frontier first.
     if graph.current_room:
@@ -79,6 +86,7 @@ class WinPlanner:
         context_history: List[Dict[str, str]],
         map_graph: MapGraph,
         completed_tasks: str,
+        blockers: Sequence[str] = (),
         llm: Optional[LLMClient],
     ) -> SingleTaskListStorage:
         """
@@ -86,7 +94,7 @@ class WinPlanner:
         """
 
         if llm is None:
-            return heuristic_plan(map_graph)
+            return heuristic_plan(map_graph, blockers=blockers)
 
         prompt = f"""
 You are an expert Colossal Cave Adventure planner.
@@ -112,13 +120,16 @@ MAP:
 
 Previously completed objectives:
 {completed_tasks}
+
+Detected blockers from recent output:
+{", ".join(blockers) if blockers else "none"}
 """
 
         messages = prompt_to_history(prompt) + context_history[-30:]
         response = openai_call(messages, max_tokens=700, llm=llm)
         tasks = openai_task_response_to_list(response)
         if not tasks:
-            return heuristic_plan(map_graph)
+            return heuristic_plan(map_graph, blockers=blockers)
 
         # Cap number of tasks defensively.
         return SingleTaskListStorage(tasks[: self._config.max_tasks])

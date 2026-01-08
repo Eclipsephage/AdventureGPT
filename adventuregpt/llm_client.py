@@ -136,3 +136,29 @@ class CappedLLMClient:
         capped = min(int(max_output_tokens), self._cap)
         return self._inner.respond(messages, max_output_tokens=capped)
 
+
+class CachedLLMClient:
+    """
+    Simple in-memory cache for LLM responses within a process.
+
+    Useful for eval iterations where identical prompts may repeat.
+    """
+
+    def __init__(self, inner: LLMClient, *, max_entries: int = 256):
+        self._inner = inner
+        self._max_entries = int(max_entries)
+        self._cache: dict[tuple[int, int], str] = {}
+        self._order: list[tuple[int, int]] = []
+
+    def respond(self, messages: Messages, *, max_output_tokens: int) -> str:
+        key = (hash(repr(messages)), int(max_output_tokens))
+        if key in self._cache:
+            return self._cache[key]
+        text = self._inner.respond(messages, max_output_tokens=max_output_tokens)
+        self._cache[key] = text
+        self._order.append(key)
+        if len(self._order) > self._max_entries:
+            old = self._order.pop(0)
+            self._cache.pop(old, None)
+        return text
+

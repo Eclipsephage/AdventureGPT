@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .game_loop import GameLoop
-from .llm_client import CappedLLMClient, OpenAIResponsesClient, OpenAIResponsesConfig
+from .llm_client import CappedLLMClient, CachedLLMClient, OpenAIResponsesClient, OpenAIResponsesConfig
 from .run_artifacts import RunArtifacts, RunArtifactsConfig
 
 
@@ -38,6 +38,8 @@ class EvalConfig:
     max_seconds: float
     cost_per_1k_input_usd: Optional[float]
     cost_per_1k_output_usd: Optional[float]
+    models: List[str]
+    temperatures: List[float]
 
 
 def _utc_stamp() -> str:
@@ -55,6 +57,16 @@ def parse_args(argv: Optional[list[str]] = None) -> EvalConfig:
     )
     parser.add_argument("--model", default="gpt-4o-mini", help="Model to use (non-dry-run).")
     parser.add_argument("--temperature", type=float, default=0.0, help="Temperature (non-dry-run).")
+    parser.add_argument(
+        "--models",
+        default=None,
+        help="Comma-separated models to run as a matrix (overrides --model).",
+    )
+    parser.add_argument(
+        "--temperatures",
+        default=None,
+        help="Comma-separated temperatures to run as a matrix (overrides --temperature).",
+    )
     parser.add_argument("--max_output_tokens", type=int, default=2000, help="Max output tokens cap.")
     parser.add_argument("--max_steps", type=int, default=200, help="Max steps per run before stopping.")
     parser.add_argument(
@@ -79,6 +91,13 @@ def parse_args(argv: Optional[list[str]] = None) -> EvalConfig:
 
     out_dir = Path(ns.out_dir) if ns.out_dir else Path("eval_runs") / _utc_stamp()
 
+    models = [str(ns.model)]
+    if ns.models:
+        models = [m.strip() for m in str(ns.models).split(",") if m.strip()]
+    temperatures = [float(ns.temperature)]
+    if ns.temperatures:
+        temperatures = [float(t.strip()) for t in str(ns.temperatures).split(",") if t.strip()]
+
     return EvalConfig(
         runs=int(ns.runs),
         dry_run=bool(ns.dry_run),
@@ -90,6 +109,8 @@ def parse_args(argv: Optional[list[str]] = None) -> EvalConfig:
         max_seconds=float(ns.max_seconds),
         cost_per_1k_input_usd=ns.cost_per_1k_input_usd,
         cost_per_1k_output_usd=ns.cost_per_1k_output_usd,
+        models=models,
+        temperatures=temperatures,
     )
 
 
@@ -184,74 +205,108 @@ def main(argv: Optional[list[str]] = None) -> int:
     per_run: List[Dict[str, Any]] = []
     stamp = _utc_stamp()
 
-    for i in range(cfg.runs):
-        run_id = f"{i:03d}_{stamp}"
-        run_dir = cfg.out_dir / run_id
+    matrix_reports: List[Dict[str, Any]] = []
 
-        artifacts = RunArtifacts(RunArtifactsConfig(base_run_dir=str(run_dir)))
-        artifacts.set_llm_config(
-            model=cfg.model,
-            temperature=cfg.temperature,
-            max_output_tokens=cfg.max_output_tokens,
-            dry_run=cfg.dry_run,
-        )
-        artifacts.set_cost_rates(
-            cost_per_1k_input_usd=cfg.cost_per_1k_input_usd,
-            cost_per_1k_output_usd=cfg.cost_per_1k_output_usd,
-        )
+    combos = [(m, t) for m in cfg.models for t in cfg.temperatures]
+    for combo_idx, (model, temperature) in enumerate(combos):
+        per_run = []
+        combo_dir = cfg.out_dir / f"matrix_{combo_idx:02d}_{model.replace('/', '_')}_t{temperature}"
+        combo_dir.mkdir(parents=True, exist_ok=True)
 
-        llm = None
-        if not cfg.dry_run:
-            import os
+        for i in range(cfg.runs):
+            run_id = f"{i:03d}_{stamp}"
+            run_dir = combo_dir / run_id
 
-            api_key = os.environ.get("OPENAI_API_KEY")
-            if not api_key:
-                raise RuntimeError("OPENAI_API_KEY is not set (required for non-dry-run eval).")
-            base = OpenAIResponsesClient(
-                api_key=api_key,
-                config=OpenAIResponsesConfig(model=cfg.model, temperature=cfg.temperature),
-                on_usage=artifacts.add_usage,
+            artifacts = RunArtifacts(RunArtifactsConfig(base_run_dir=str(run_dir)))
+            artifacts.set_llm_config(
+                model=model,
+                temperature=temperature,
+                max_output_tokens=cfg.max_output_tokens,
+                dry_run=cfg.dry_run,
             )
-            llm = CappedLLMClient(base, max_output_tokens_cap=cfg.max_output_tokens)
+            artifacts.set_cost_rates(
+                cost_per_1k_input_usd=cfg.cost_per_1k_input_usd,
+                cost_per_1k_output_usd=cfg.cost_per_1k_output_usd,
+            )
 
-        loop = GameLoop(
-            walkthrough_path=None,
-            artifacts=artifacts,
-            dry_run=cfg.dry_run,
-            llm=llm,
-            max_steps=cfg.max_steps,
-            max_seconds=cfg.max_seconds,
-        )
+            llm = None
+            if not cfg.dry_run:
+                import os
 
-        try:
-            loop.run()
-        finally:
-            artifacts.close()
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if not api_key:
+                    raise RuntimeError("OPENAI_API_KEY is not set (required for non-dry-run eval).")
+                base = OpenAIResponsesClient(
+                    api_key=api_key,
+                    config=OpenAIResponsesConfig(model=model, temperature=temperature),
+                    on_usage=artifacts.add_usage,
+                )
+                llm = CachedLLMClient(CappedLLMClient(base, max_output_tokens_cap=cfg.max_output_tokens))
 
-        metrics_path = run_dir / "metrics.json"
-        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-        metrics["run_id"] = run_id
-        per_run.append(metrics)
+            loop = GameLoop(
+                walkthrough_path=None,
+                artifacts=artifacts,
+                dry_run=cfg.dry_run,
+                llm=llm,
+                max_steps=cfg.max_steps,
+                max_seconds=cfg.max_seconds,
+            )
 
-    report = {
+            try:
+                loop.run()
+            finally:
+                artifacts.close()
+
+            metrics_path = run_dir / "metrics.json"
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+            metrics["run_id"] = run_id
+            per_run.append(metrics)
+
+        report = {
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "config": {
+                "runs": cfg.runs,
+                "dry_run": cfg.dry_run,
+                "model": model,
+                "temperature": temperature,
+                "max_output_tokens": cfg.max_output_tokens,
+                "max_steps": cfg.max_steps,
+                "max_seconds": cfg.max_seconds,
+                "cost_per_1k_input_usd": cfg.cost_per_1k_input_usd,
+                "cost_per_1k_output_usd": cfg.cost_per_1k_output_usd,
+            },
+            "summary": aggregate_metrics(per_run),
+            "runs": per_run,
+        }
+
+        (combo_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        write_csv(per_run, combo_dir / "report.csv")
+        matrix_reports.append(report)
+
+    # Write a top-level index report for the whole matrix.
+    index = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "config": {
             "runs": cfg.runs,
             "dry_run": cfg.dry_run,
-            "model": cfg.model,
-            "temperature": cfg.temperature,
+            "models": cfg.models,
+            "temperatures": cfg.temperatures,
             "max_output_tokens": cfg.max_output_tokens,
             "max_steps": cfg.max_steps,
             "max_seconds": cfg.max_seconds,
             "cost_per_1k_input_usd": cfg.cost_per_1k_input_usd,
             "cost_per_1k_output_usd": cfg.cost_per_1k_output_usd,
         },
-        "summary": aggregate_metrics(per_run),
-        "runs": per_run,
+        "matrix": [
+            {
+                "model": r["config"]["model"],
+                "temperature": r["config"]["temperature"],
+                "summary": r["summary"],
+            }
+            for r in matrix_reports
+        ],
     }
-
-    (cfg.out_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    write_csv(per_run, cfg.out_dir / "report.csv")
+    (cfg.out_dir / "matrix_report.json").write_text(json.dumps(index, indent=2), encoding="utf-8")
     return 0
 
 

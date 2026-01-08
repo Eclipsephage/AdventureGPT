@@ -1,0 +1,5 @@
+generated_at_utc,runs,dry_run,model,temperature,max_steps,max_seconds,avg_steps,avg_total_tokens,avg_estimated_cost_usd,errors_count
+2026-01-08T07:04:05.829964+00:00,1,True,gpt-4o-mini,0.0,1,60.0,1.0,0.0,0.0,1
+2026-01-08T07:04:05.834023+00:00,1,True,gpt-4o-mini,0.2,1,60.0,1.0,0.0,0.0,1
+2026-01-08T07:04:05.836969+00:00,1,True,gpt-4o-mini,0.0,1,60.0,1.0,0.0,0.0,1
+2026-01-08T07:04:05.840170+00:00,1,True,gpt-4o-mini,0.2,1,60.0,1.0,0.0,0.0,1

@@ -72,6 +72,7 @@ class GameState:
     last_scene_line: Optional[str] = None
     possible_directions: Set[str] = field(default_factory=set)
     inventory: Optional[List[str]] = None
+    blockers: List[str] = field(default_factory=list)
 
 
 class GameStateTracker:
@@ -103,6 +104,8 @@ class GameStateTracker:
         if inv is not None:
             self.state.inventory = inv
 
+        self.state.blockers = detect_blockers(output)
+
     def format_summary(self, *, max_chars: int = 700) -> str:
         """
         Format a compact state summary suitable for a system prompt.
@@ -112,6 +115,7 @@ class GameStateTracker:
         inv_str = ", ".join(inv) if inv else "unknown"
         dirs = ", ".join(sorted(self.state.possible_directions)) if self.state.possible_directions else "unknown"
         scene = self.state.last_scene_line or "unknown"
+        blockers = ", ".join(self.state.blockers) if self.state.blockers else "none"
 
         snippet = (self.state.last_system_output or "").strip().replace("\n", " ")
         if len(snippet) > max_chars:
@@ -124,6 +128,36 @@ class GameStateTracker:
             f"- Scene line: {scene}\n"
             f"- Possible directions mentioned: {dirs}\n"
             f"- Inventory: {inv_str}\n"
+            f"- Blockers: {blockers}\n"
             f"- Last output snippet: {snippet}\n"
         )
+
+
+def detect_blockers(text: str) -> List[str]:
+    """
+    Detect common "blocked progress" signals from game output.
+
+    Returns a list of short blocker tags.
+    """
+
+    t = (text or "").lower()
+    blockers: List[str] = []
+    if "too dark" in t or "it is now pitch dark" in t:
+        blockers.append("dark")
+    if "locked" in t:
+        blockers.append("locked")
+    if "i don't know that word" in t or "i dont know that word" in t:
+        blockers.append("unknown_word")
+    if "you can't" in t or "you cant" in t:
+        blockers.append("cant")
+    if "i see no" in t or "you see no" in t:
+        blockers.append("not_present")
+    if "please answer the question" in t:
+        blockers.append("needs_yes_no")
+    # de-dupe, stable order
+    out: List[str] = []
+    for b in blockers:
+        if b not in out:
+            out.append(b)
+    return out
 

@@ -1,0 +1,63 @@
+{
+  "generated_at_utc": "2026-01-08T07:04:05.829964+00:00",
+  "config": {
+    "runs": 1,
+    "dry_run": true,
+    "model": "gpt-4o-mini",
+    "temperature": 0.0,
+    "max_output_tokens": 2000,
+    "max_steps": 1,
+    "max_seconds": 60.0,
+    "cost_per_1k_input_usd": null,
+    "cost_per_1k_output_usd": null
+  },
+  "summary": {
+    "runs": 1,
+    "total_steps": 1,
+    "total_commands_sent": 0,
+    "total_tasks_completed": 0,
+    "total_input_tokens": 0,
+    "total_output_tokens": 0,
+    "total_tokens": 0,
+    "total_estimated_cost_usd": 0.0,
+    "avg_steps": 1.0,
+    "avg_commands_sent": 0.0,
+    "avg_tasks_completed": 0.0,
+    "avg_total_tokens": 0.0,
+    "avg_estimated_cost_usd": 0.0,
+    "errors_count": 1
+  },
+  "runs": [
+    {
+      "started_at_utc": "2026-01-08T07:04:05.826553+00:00",
+      "ended_at_utc": "2026-01-08T07:04:05.829824+00:00",
+      "walkthrough_enabled": false,
+      "dry_run": true,
+      "llm": {
+        "model": "gpt-4o-mini",
+        "temperature": 0.0,
+        "max_output_tokens": 2000,
+        "cost_per_1k_input_usd": null,
+        "cost_per_1k_output_usd": null
+      },
+      "tokens": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0
+      },
+      "estimated_cost_usd": 0.0,
+      "map": {
+        "rooms_discovered": 0,
+        "transitions_recorded": 0,
+        "frontier_size": 0
+      },
+      "steps": 1,
+      "commands_sent": 0,
+      "tasks_completed": 0,
+      "errors": [
+        "Stopped due to max_steps limit (1)."
+      ],
+      "run_id": "000_20260108_070405"
+    }
+  ]
+}
