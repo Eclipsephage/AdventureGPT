@@ -14,7 +14,7 @@ classifiers = [
 ]
 dependencies = [
     "adventure ~=1.6",
-    "openai ~=0.27.7",
+    "openai >=1.0.0",
 ]
 
 [project.scripts]

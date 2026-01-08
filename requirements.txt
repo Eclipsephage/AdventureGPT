@@ -1,5 +1,6 @@
 adventure==1.6
-openai==0.27.7
+# OpenAI Python SDK (modern) - required for Responses API
+openai>=1.0.0
 requests==2.31.0
 tqdm==4.65.0
 pytest==9.0.2
