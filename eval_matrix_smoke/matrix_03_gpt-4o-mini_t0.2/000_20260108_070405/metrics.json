@@ -1,0 +1,30 @@
+{
+  "started_at_utc": "2026-01-08T07:04:05.837402+00:00",
+  "ended_at_utc": "2026-01-08T07:04:05.840011+00:00",
+  "walkthrough_enabled": false,
+  "dry_run": true,
+  "llm": {
+    "model": "gpt-4o-mini",
+    "temperature": 0.2,
+    "max_output_tokens": 2000,
+    "cost_per_1k_input_usd": null,
+    "cost_per_1k_output_usd": null
+  },
+  "tokens": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "total_tokens": 0
+  },
+  "estimated_cost_usd": 0.0,
+  "map": {
+    "rooms_discovered": 0,
+    "transitions_recorded": 0,
+    "frontier_size": 0
+  },
+  "steps": 1,
+  "commands_sent": 0,
+  "tasks_completed": 0,
+  "errors": [
+    "Stopped due to max_steps limit (1)."
+  ]
+}

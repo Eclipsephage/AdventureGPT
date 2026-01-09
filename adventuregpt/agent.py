@@ -1,5 +1,5 @@
 """
-OpenAI based agents for interactiving in the game world
+AdventureGPT agent logic for interacting in the game world.
 
 Copyright (c) 2023 Lily Hughes-Robinson.
 
@@ -30,26 +30,32 @@ SOFTWARE.
 """
 
 import os
-import openai
 import re
-import time
 
-from typing import Dict, List, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 from collections import deque
 
+from .llm_client import LLMClient, OpenAIResponsesClient, OpenAIResponsesConfig
+from .llm_types import Messages
 
-LLM_MODEL = "gpt-3.5-turbo"
+
+# Default model can be overridden via environment variable.
+# Note: choose a Responses-compatible model by default.
+LLM_MODEL = os.environ.get("ADVENTUREGPT_MODEL", "gpt-4o-mini")
 MAX_LLM_TOKEN = 4096
 OPENAI_TEMPERATURE = 0.0
 
 
-api_key = os.environ.get("OPENAI_API_KEY")
+def _get_openai_api_key() -> Optional[str]:
+    """
+    Return the OpenAI API key from environment, if available.
 
-if not api_key:
-    api_key = input("OpenAI Key:")
-    os.environ["OPENAI_API_KEY"] = api_key
+    Phase 0 behavior:
+    - Do NOT prompt for keys at import-time (breaks non-interactive runs/tests).
+    - Instead, raise a clear error when an API call is attempted without a key.
+    """
 
-openai.api_key = api_key
+    return os.environ.get("OPENAI_API_KEY")
 
 
 def prompt_to_history(prompt: str) -> List[Dict[str, str]]:
@@ -62,6 +68,9 @@ def prompt_to_history(prompt: str) -> List[Dict[str, str]]:
 def chunk_tokens_from_string(string: str, model: str = LLM_MODEL, chunk_size: int = 500) -> List[str]:
     """
     Chunks the string into blocks based on a number of tokens (estimated).
+
+    Notes:
+        This currently uses whitespace splitting as a token estimate.
     """
     tokens = string.split()
     total = len(tokens)
@@ -74,68 +83,51 @@ def chunk_tokens_from_string(string: str, model: str = LLM_MODEL, chunk_size: in
            chunks.append(" ".join(tokens[start_idx:start_idx + chunk_size]))
         else:
            chunks.append(" ".join(tokens[start_idx:]))
-        multipier += 1
+        multiplier += 1
 
     return chunks
 
 
 def openai_call(
-    messages: str,
+    messages: List[Dict[str, str]],
     model: str = LLM_MODEL,
     temperature: float = OPENAI_TEMPERATURE,
     max_tokens: int = 100,
+    llm: Optional[LLMClient] = None,
 ):
     """
-    Call OpenAI using its chat completion API. Covers some nice expected
-    scenarios when hitting the API, such as rate limiting
-    """
-    while True:
-        try:
-            # Use 4000 instead of the real limit (4097) to give a bit of wiggle room for the encoding of roles.
-            # TODO: different limits for different models.
+    Backwards-compatible wrapper for LLM calls.
 
-            # Use chat completion API
-            response = openai.ChatCompletion.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                n=1,
-                stop=None,
-            )
-            return response.choices[0].message.content.strip()
-        except openai.error.RateLimitError:
-            print(
-                "   *** The OpenAI API rate limit has been exceeded. Waiting 10 seconds and trying again. ***"
-            )
-            time.sleep(10)  # Wait 10 seconds and try again
-        except openai.error.Timeout:
-            print(
-                "   *** OpenAI API timeout occurred. Waiting 10 seconds and trying again. ***"
-            )
-            time.sleep(10)  # Wait 10 seconds and try again
-        except openai.error.APIError:
-            print(
-                "   *** OpenAI API error occurred. Waiting 10 seconds and trying again. ***"
-            )
-            time.sleep(10)  # Wait 10 seconds and try again
-        except openai.error.APIConnectionError:
-            print(
-                "   *** OpenAI API connection error occurred. Check your network settings, proxy configuration, SSL certificates, or firewall rules. Waiting 10 seconds and trying again. ***"
-            )
-            time.sleep(10)  # Wait 10 seconds and try again
-        except openai.error.InvalidRequestError:
-            print(
-                "   *** OpenAI API invalid request. Check the documentation for the specific API method you are calling and make sure you are sending valid and complete parameters. Waiting 10 seconds and trying again. ***"
-            )
-            time.sleep(10)  # Wait 10 seconds and try again
-        except openai.error.ServiceUnavailableError:
-            print(
-                "   *** OpenAI API service unavailable. Waiting 9 seconds and trying again. ***"
-            )
-            time.sleep(10)  # Wait 10 seconds and try again
-        else:
-            break
+    Phase 1:
+        Uses the OpenAI *Responses API* via the modern OpenAI SDK.
+    """
+    if llm is None:
+        llm = get_default_llm(model=model, temperature=temperature)
+
+    typed_messages: Messages = [{"role": m["role"], "content": m["content"]} for m in messages]  # type: ignore[typeddict-item]
+    return llm.respond(typed_messages, max_output_tokens=max_tokens)
+
+
+def get_default_llm(*, model: str = LLM_MODEL, temperature: float = OPENAI_TEMPERATURE) -> LLMClient:
+    """
+    Build the default LLM client from environment configuration.
+
+    Uses OpenAI's Responses API.
+    """
+
+    api_key = _get_openai_api_key()
+    if not api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY is not set. Please set it in your environment to run AdventureGPT."
+        )
+
+    return OpenAIResponsesClient(
+        api_key=api_key,
+        config=OpenAIResponsesConfig(
+            model=model,
+            temperature=temperature,
+        ),
+    )
 
 
 class SingleTaskListStorage:
@@ -143,40 +135,67 @@ class SingleTaskListStorage:
     A task list for storing game tasks
     """
 
-    def __init__(self, initial_list: list = []):
-        self.tasks = deque(initial_list)
+    def __init__(self, initial_list: Optional[Iterable[Dict[str, Any]]] = None):
+        """
+        Create a new task storage.
+
+        Args:
+            initial_list: Optional iterable of dicts like {"task_name": "..."}.
+        """
+
+        self.tasks = deque(initial_list or [])
         self.task_id_counter = 0
 
-    def append(self, task: Dict):
+    def append(self, task: Dict[str, Any]) -> None:
         self.tasks.append(task)
 
-    def replace(self, tasks: List[Dict]):
+    def replace(self, tasks: List[Dict[str, Any]]) -> None:
         self.tasks = deque(tasks)
 
-    def concat(self, tasks):
-        self.tasks += deque(tasks.tasks)
+    def concat(self, tasks: Union["SingleTaskListStorage", Iterable[Dict[str, Any]]]) -> None:
+        """
+        Concatenate tasks into this storage.
 
-    def popleft(self):
+        Accepts either another SingleTaskListStorage or any iterable of task dicts.
+        """
+
+        if isinstance(tasks, SingleTaskListStorage):
+            self.tasks += deque(tasks.tasks)
+            return
+
+        self.tasks += deque(tasks)
+
+    def popleft(self) -> Optional[Dict[str, Any]]:
+        """
+        Pop the next task, returning None if empty.
+        """
+
+        if not self.tasks:
+            return None
         return self.tasks.popleft()
 
-    def is_empty(self):
+    def is_empty(self) -> bool:
         return False if self.tasks else True
 
-    def next_task_id(self):
+    def next_task_id(self) -> int:
         self.task_id_counter += 1
         return self.task_id_counter
 
-    def get_task_names(self):
-        return [t["task_name"] for t in self.tasks]
+    def get_task_names(self) -> List[str]:
+        return [str(t.get("task_name", "")) for t in self.tasks if t.get("task_name")]
 
-    def __repr__(self):
-        self.tasks
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(tasks={list(self.tasks)!r})"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "\n".join([f'{i}. {t["task_name"]}' for i, t in enumerate(self.tasks)])
 
 
 def openai_task_response_to_list(response: str):
+    """
+    Convert a numbered list response into a list of task dicts.
+    """
+
     new_tasks = response.split('\n')
     new_tasks_list = []
     for task_string in new_tasks:
@@ -190,7 +209,11 @@ def openai_task_response_to_list(response: str):
     return [{"task_name": task_name} for task_name in new_tasks_list]
 
           
-def gametask_creation_agent(history: List[Dict[str, str]], max_history: int = 30) -> SingleTaskListStorage:
+def gametask_creation_agent(
+    history: List[Dict[str, str]],
+    max_history: int = 30,
+    llm: Optional[LLMClient] = None,
+) -> SingleTaskListStorage:
     """
     Creates a list of game tasks to complete based game history
     
@@ -226,12 +249,12 @@ Unless your list is empty, do not include any headers before your numbered list 
     prompt += 'Take into account the game history attached here:'
     first_history_index = 0 if len(history) <= max_history else -1 * max_history
     messages = prompt_to_history(prompt) + history[first_history_index:]
-    response = openai_call(messages, max_tokens=2000)
+    response = openai_call(messages, max_tokens=2000, llm=llm)
     task_list = openai_task_response_to_list(response)
     return SingleTaskListStorage(task_list)
 
 
-def walkthrough_gametask_creation_agent(walkthrough: str):
+def walkthrough_gametask_creation_agent(walkthrough: str, llm: Optional[LLMClient] = None):
     """
     Creates a list of game tasks to complete based on a given walthrough.
 
@@ -258,12 +281,17 @@ The number of each entry must be followed by a period.
 Unless your list is empty, do not include any headers before your numbered list or follow your numbered list with any other output.
 """
 
-    response = openai_call(prompt_to_history(prompt), max_tokens=2000)
+    response = openai_call(prompt_to_history(prompt), max_tokens=2000, llm=llm)
     task_list = openai_task_response_to_list(response)
     return SingleTaskListStorage(task_list)
 
 
-def prioritization_agent(task_storage: SingleTaskListStorage, history: List[Dict[str, str]], max_history: int = 30) -> SingleTaskListStorage:
+def prioritization_agent(
+    task_storage: SingleTaskListStorage,
+    history: List[Dict[str, str]],
+    max_history: int = 30,
+    llm: Optional[LLMClient] = None,
+) -> SingleTaskListStorage:
     """
     Given a SingleTaskListStorage and game history, prioritize the task list to be more effective
 
@@ -295,7 +323,7 @@ Do not include any headers before your ranked list or follow your list with any 
     prompt += 'Take into account these previously completed tasks in the chat history'
     first_history_index = 0 if len(history) <= max_history else -1 * max_history
     messages = prompt_to_history(prompt) + history[first_history_index:]
-    response = openai_call(messages, max_tokens=2000)
+    response = openai_call(messages, max_tokens=2000, llm=llm)
     if not response:
         # Received empty response from priotritization agent. Keeping task list unchanged.
         return task_storage
@@ -304,7 +332,13 @@ Do not include any headers before your ranked list or follow your list with any 
     return SingleTaskListStorage(new_tasks)
 
 
-def player_agent(objective: str, history: List[Dict[str, str]], completed_tasks, max_history: int = 30) -> str:
+def player_agent(
+    objective: str,
+    history: List[Dict[str, str]],
+    completed_tasks,
+    max_history: int = 30,
+    llm: Optional[LLMClient] = None,
+) -> str:
     """
     Executes a task based on the given objective and previous game history
 
@@ -327,15 +361,24 @@ The games text parser is limited, keep your commands to one action and 1-3 words
 
 """
     prompt += f"Choose the next game input based on the following objective: {objective}\n"
+    prompt += (
+        "\nIf MAP/STATE suggests a frontier move (an untried exit), prefer exploring it when your objective is exploration.\n"
+        "Return only the command text (no explanations)."
+    )
     prompt += f"\nThe following objectives have been completed\n{completed_tasks}\n\n"
     prompt += 'Take into account these previously completed tasks in the chat history'
     first_history_index = 0 if len(history) <= max_history else -1 * max_history
     messages = prompt_to_history(prompt) + history[first_history_index:]
-    return openai_call(messages, max_tokens=2000)
+    return openai_call(messages, max_tokens=2000, llm=llm)
 
 
 # Decide if task has been completed
-def task_completion_agent(objective: str, history: List[Dict[str, str]], max_history: int = 10) -> str:
+def task_completion_agent(
+    objective: str,
+    history: List[Dict[str, str]],
+    max_history: int = 10,
+    llm: Optional[LLMClient] = None,
+) -> str:
     """
     Executes a task based on the given objective and previous context.
 
@@ -355,5 +398,5 @@ def task_completion_agent(objective: str, history: List[Dict[str, str]], max_his
     prompt += f'Reply with a simple "COMPLETE" or "INCOMPLETE". Conversation history is below:\n'
     first_history_index = 0 if len(history) <= max_history else -1 * max_history
     messages = prompt_to_history(prompt) + history[first_history_index:]
-    return openai_call(messages, max_tokens=2000).lower() == "complete"
+    return openai_call(messages, max_tokens=2000, llm=llm).lower() == "complete"
 

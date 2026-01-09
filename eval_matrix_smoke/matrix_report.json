@@ -1,0 +1,102 @@
+{
+  "generated_at_utc": "2026-01-08T07:04:05.840375+00:00",
+  "config": {
+    "runs": 1,
+    "dry_run": true,
+    "models": [
+      "gpt-4o-mini",
+      "gpt-4o-mini"
+    ],
+    "temperatures": [
+      0.0,
+      0.2
+    ],
+    "max_output_tokens": 2000,
+    "max_steps": 1,
+    "max_seconds": 60.0,
+    "cost_per_1k_input_usd": null,
+    "cost_per_1k_output_usd": null
+  },
+  "matrix": [
+    {
+      "model": "gpt-4o-mini",
+      "temperature": 0.0,
+      "summary": {
+        "runs": 1,
+        "total_steps": 1,
+        "total_commands_sent": 0,
+        "total_tasks_completed": 0,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 0,
+        "total_estimated_cost_usd": 0.0,
+        "avg_steps": 1.0,
+        "avg_commands_sent": 0.0,
+        "avg_tasks_completed": 0.0,
+        "avg_total_tokens": 0.0,
+        "avg_estimated_cost_usd": 0.0,
+        "errors_count": 1
+      }
+    },
+    {
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "summary": {
+        "runs": 1,
+        "total_steps": 1,
+        "total_commands_sent": 0,
+        "total_tasks_completed": 0,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 0,
+        "total_estimated_cost_usd": 0.0,
+        "avg_steps": 1.0,
+        "avg_commands_sent": 0.0,
+        "avg_tasks_completed": 0.0,
+        "avg_total_tokens": 0.0,
+        "avg_estimated_cost_usd": 0.0,
+        "errors_count": 1
+      }
+    },
+    {
+      "model": "gpt-4o-mini",
+      "temperature": 0.0,
+      "summary": {
+        "runs": 1,
+        "total_steps": 1,
+        "total_commands_sent": 0,
+        "total_tasks_completed": 0,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 0,
+        "total_estimated_cost_usd": 0.0,
+        "avg_steps": 1.0,
+        "avg_commands_sent": 0.0,
+        "avg_tasks_completed": 0.0,
+        "avg_total_tokens": 0.0,
+        "avg_estimated_cost_usd": 0.0,
+        "errors_count": 1
+      }
+    },
+    {
+      "model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "summary": {
+        "runs": 1,
+        "total_steps": 1,
+        "total_commands_sent": 0,
+        "total_tasks_completed": 0,
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_tokens": 0,
+        "total_estimated_cost_usd": 0.0,
+        "avg_steps": 1.0,
+        "avg_commands_sent": 0.0,
+        "avg_tasks_completed": 0.0,
+        "avg_total_tokens": 0.0,
+        "avg_estimated_cost_usd": 0.0,
+        "errors_count": 1
+      }
+    }
+  ]
+}

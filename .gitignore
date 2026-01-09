@@ -161,3 +161,17 @@ cython_debug/
 
 # DON'T commit your OpenAI Key
 openai-key.txt
+
+# AdventureGPT run artifacts
+runs/
+
+# Eval harness outputs
+eval_runs/
+eval_trends/
+
+# Example smoke/eval outputs created locally
+runs_smoke/
+runs_smoke_p1/
+runs_smoke_shared/
+eval_smoke/
+eval_smoke2/
