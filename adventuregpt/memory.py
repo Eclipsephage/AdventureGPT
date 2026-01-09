@@ -55,6 +55,7 @@ class MemoryManager:
         *,
         llm: Optional[LLMClient],
         state_summary: Optional[str] = None,
+        tool_summary: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         """
         Return a bounded history suitable to pass to agents.
@@ -77,6 +78,8 @@ class MemoryManager:
         injected_parts: list[str] = []
         if state_summary:
             injected_parts.append(state_summary.strip())
+        if tool_summary:
+            injected_parts.append(tool_summary.strip())
         if self._summary:
             injected_parts.append("## Memory summary\n" + self._summary.strip())
 

@@ -39,6 +39,7 @@ AdventureGPT now includes:
 - **Command normalization + loop breaking** (`adventuregpt/command_safety.py`): converts model output into a single short command and attempts to break out of simple repetition loops.
 - **Map tracking** (`adventuregpt/map_agent.py`, `adventuregpt/map_graph.py`): builds a room/exit graph during play, tracks frontier exits, and writes `map.json` into each run directory.
 - **Deterministic navigation for map objectives** (`adventuregpt/navigation_tasks.py`): if an objective matches patterns like `Explore east from <room>`, AdventureGPT will route to `<room>` using known map edges before exploring.
+- **Tool-structured planning** (`adventuregpt/tools_layer.py`, `adventuregpt/actions.py`): the win-planner emits structured actions (MOVE/TAKE/LOOK/etc.) backed by a deterministic tool snapshot; the game loop executes many actions without needing the player LLM.
 
 ### Smoke test (no OpenAI calls)
 

@@ -40,6 +40,8 @@ from .navigator import suggest_frontier_move
 from .ui_hooks import StdoutUI, UIHooks
 from .outcome import detect_outcome
 from .navigation_tasks import next_command_for_objective
+from .actions import Action, action_to_command
+from .tools_layer import build_tool_snapshot
 
 
 BAUD = 1200
@@ -75,6 +77,7 @@ class GameLoop:
         self.game_tasks = SingleTaskListStorage()
         self.completed_tasks = SingleTaskListStorage()
         self.current_task: Optional[str] = None
+        self.current_task_obj: Optional[Dict[str, str]] = None
 
         self.game: Optional[Game] = None
         self.state = GameStateTracker()
@@ -133,8 +136,10 @@ class GameLoop:
 
         next_task = self.game_tasks.popleft()
         if next_task:
+            self.current_task_obj = next_task
             self.current_task = next_task.get("task_name")
         else:
+            self.current_task_obj = None
             self.current_task = None
 
     def _init_tasks(self) -> None:
@@ -170,11 +175,13 @@ class GameLoop:
                 self.game_tasks.concat(tasks)
         else:
             # Phase 3: win-oriented planner (map/state aware).
+            tools = build_tool_snapshot(self.state, self.map_agent)
             self.game_tasks = self.planner.plan(
                 context_history=self.history,
                 map_graph=self.map_agent.graph,
                 completed_tasks=str(self.completed_tasks),
                 blockers=self.state.state.blockers,
+                tools=tools,
                 llm=self.planner_llm or self.llm,
             )
 
@@ -220,6 +227,7 @@ class GameLoop:
                     map_graph=self.map_agent.graph,
                     completed_tasks=str(self.completed_tasks),
                     blockers=self.state.state.blockers,
+                    tools=build_tool_snapshot(self.state, self.map_agent),
                     llm=self.planner_llm or self.llm,
                 )
                 self._next_game_task()
@@ -229,13 +237,32 @@ class GameLoop:
 
             # Deterministic navigation step if objective matches a known pattern.
             if not self.dry_run and self.current_task:
-                nav = next_command_for_objective(self.current_task, graph=self.map_agent.graph)
-                if nav is not None:
-                    # Treat this as the chosen command; skip LLM for this turn.
-                    result = nav.command
-                    self._append_history("assistant", f"[navigation:{nav.reason}] {result}")
-                else:
-                    result = None
+                result = None
+                # If the current task has an action, try executing it deterministically.
+                # (We keep task name as the human-readable objective for completion checks.)
+                current_task_obj = getattr(self, "current_task_obj", None)
+                if isinstance(current_task_obj, dict) and current_task_obj.get("action"):
+                    try:
+                        a = Action.from_dict(current_task_obj["action"])
+                        cmd = action_to_command(a)
+                        if cmd:
+                            result = cmd
+                            self._append_history("assistant", f"[action:{a.type}] {result}")
+                        elif a.type == "EXPLORE_FROM":
+                            # Use navigation executor using the human objective string.
+                            nav = next_command_for_objective(a.to_task_name(), graph=self.map_agent.graph)
+                            if nav is not None:
+                                result = nav.command
+                                self._append_history("assistant", f"[navigation:{nav.reason}] {result}")
+                    except Exception:
+                        result = None
+
+                # Also support older string-style navigation objectives.
+                if result is None:
+                    nav = next_command_for_objective(self.current_task, graph=self.map_agent.graph)
+                    if nav is not None:
+                        result = nav.command
+                        self._append_history("assistant", f"[navigation:{nav.reason}] {result}")
             else:
                 result = None
 
@@ -245,6 +272,7 @@ class GameLoop:
             elif result is None:
                 state_summary = self.state.format_summary()
                 map_summary = self.map_agent.format_prompt_addendum()
+                tools = build_tool_snapshot(self.state, self.map_agent)
                 self.ui.on_info(
                     objective=self.current_task or "",
                     state_summary=state_summary,
@@ -254,6 +282,7 @@ class GameLoop:
                     self.history,
                     llm=self.llm,
                     state_summary=state_summary + "\n" + map_summary,
+                    tool_summary=tools.to_prompt(),
                 )
                 result = player_agent(
                     self.current_task,
@@ -307,10 +336,12 @@ class GameLoop:
             if not self.walkthrough_path:
                 state_summary = self.state.format_summary()
                 map_summary = self.map_agent.format_prompt_addendum()
+                tools = build_tool_snapshot(self.state, self.map_agent)
                 context_history = self.memory.build_context(
                     self.history,
                     llm=self.llm,
                     state_summary=state_summary + "\n" + map_summary,
+                    tool_summary=tools.to_prompt(),
                 )
                 # Phase 3: refresh task list from planner (map/state aware).
                 self.game_tasks = self.planner.plan(
@@ -318,6 +349,7 @@ class GameLoop:
                     map_graph=self.map_agent.graph,
                     completed_tasks=str(self.completed_tasks),
                     blockers=self.state.state.blockers,
+                    tools=tools,
                     llm=self.planner_llm or self.llm,
                 )
 

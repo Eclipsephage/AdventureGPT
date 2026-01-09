@@ -16,10 +16,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
 
-from .agent import SingleTaskListStorage, openai_task_response_to_list, prompt_to_history, openai_call
+from .actions import Action, parse_actions
+from .agent import SingleTaskListStorage, prompt_to_history, openai_call
 from .llm_client import LLMClient
 from .map_graph import MapGraph
 from .navigator import suggest_frontier_move
+from .tools_layer import ToolSnapshot
 
 
 @dataclass(frozen=True)
@@ -40,10 +42,10 @@ def heuristic_plan(graph: MapGraph, *, blockers: Sequence[str] = ()) -> SingleTa
 
     blockers = list(blockers or [])
     if "dark" in blockers:
-        tasks.append({"task_name": "Find and take a lamp or light source"})
-        tasks.append({"task_name": "Turn on the lamp if you have it"})
+        tasks.append({"task_name": Action(type="TAKE", arg="lamp").to_task_name(), "action": Action(type="TAKE", arg="lamp").to_dict()})
+        tasks.append({"task_name": Action(type="USE", arg="lamp").to_task_name(), "action": Action(type="USE", arg="lamp").to_dict()})
     if "needs_yes_no" in blockers:
-        tasks.append({"task_name": "Answer the prompt with yes or no"})
+        tasks.append({"task_name": Action(type="SAY", arg="yes").to_task_name(), "action": Action(type="SAY", arg="yes").to_dict()})
 
     # Prefer current-room frontier first.
     if graph.current_room:
@@ -51,21 +53,23 @@ def heuristic_plan(graph: MapGraph, *, blockers: Sequence[str] = ()) -> SingleTa
         room = graph.rooms.get(graph.current_room)
         if room:
             for d in sorted(room.exits_mentioned - set(known.keys())):
-                tasks.append({"task_name": f"Explore {d} from current room"})
+                a = Action(type="MOVE", arg=d)
+                tasks.append({"task_name": a.to_task_name(), "action": a.to_dict()})
 
     # Then any other frontier.
     for rid, d in graph.frontier():
         if len(tasks) >= 6:
             break
-        tasks.append({"task_name": f"Explore {d} from {rid}"})
+        a = Action(type="EXPLORE_FROM", arg=d, extra=rid)
+        tasks.append({"task_name": a.to_task_name(), "action": a.to_dict()})
 
     # Always keep a couple generic “information gathering” tasks.
     tasks.extend(
         [
-            {"task_name": f"Try moving {suggest_frontier_move(graph) or 'north'} to explore"} ,
-            {"task_name": "Look around carefully"},
-            {"task_name": "Check inventory"},
-            {"task_name": "Examine visible objects"},
+            {"task_name": Action(type="MOVE", arg=suggest_frontier_move(graph) or "north").to_task_name(), "action": Action(type="MOVE", arg=suggest_frontier_move(graph) or "north").to_dict()},
+            {"task_name": Action(type="LOOK").to_task_name(), "action": Action(type="LOOK").to_dict()},
+            {"task_name": Action(type="INVENTORY").to_task_name(), "action": Action(type="INVENTORY").to_dict()},
+            {"task_name": Action(type="EXAMINE", arg="objects").to_task_name(), "action": Action(type="EXAMINE", arg="objects").to_dict()},
         ]
     )
 
@@ -87,6 +91,7 @@ class WinPlanner:
         map_graph: MapGraph,
         completed_tasks: str,
         blockers: Sequence[str] = (),
+        tools: Optional[ToolSnapshot] = None,
         llm: Optional[LLMClient],
     ) -> SingleTaskListStorage:
         """
@@ -99,21 +104,39 @@ class WinPlanner:
         prompt = f"""
 You are an expert Colossal Cave Adventure planner.
 
-Your job is to produce the next {self._config.max_tasks} objectives to win the game.
+Your job is to produce the next {self._config.max_tasks} ACTIONS to win the game.
 
-Use the provided MAP summary and conversation context. Prefer objectives that:
+Use the provided TOOLS + MAP summary and conversation context. Prefer actions that:
 - unlock progress (pre-requisites)
 - explore untried exits (frontier)
 - collect useful items and treasures
 - avoid repeating completed or blocked objectives
 
-If an objective appears blocked, include it only if you also include a prerequisite objective that may unblock it.
+If progress appears blocked, include actions that unblock it.
 
-Return a numbered list in the format:
-1. Do X
-2. Do Y
+Return a numbered list of ACTIONS using ONLY these action types:
+
+- MOVE <direction>
+- LOOK
+- INVENTORY
+- TAKE <object>
+- DROP <object>
+- EXAMINE <object>
+- READ <object>
+- USE <object>
+- SAY <yes|no>
+- EXPLORE_FROM <direction> | <room_id>
+
+Examples:
+1. LOOK
+2. MOVE north
+3. TAKE lamp
+4. EXPLORE_FROM east | Small Chamber
 
 No headers, no extra text.
+
+TOOLS:
+{tools.to_prompt() if tools else "(none)"}
 
 MAP:
 {map_graph.format_summary()}
@@ -127,10 +150,12 @@ Detected blockers from recent output:
 
         messages = prompt_to_history(prompt) + context_history[-30:]
         response = openai_call(messages, max_tokens=700, llm=llm)
-        tasks = openai_task_response_to_list(response)
-        if not tasks:
+        actions = parse_actions(response, max_actions=self._config.max_tasks)
+        if not actions:
             return heuristic_plan(map_graph, blockers=blockers)
 
-        # Cap number of tasks defensively.
-        return SingleTaskListStorage(tasks[: self._config.max_tasks])
+        tasks: List[Dict[str, str]] = []
+        for a in actions:
+            tasks.append({"task_name": a.to_task_name(), "action": a.to_dict()})
+        return SingleTaskListStorage(tasks)
 
